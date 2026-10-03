@@ -1,0 +1,17 @@
+beaker is a C web framework vendored into this repository.
+
+Upstream: https://git.bwaaa.monster/beaker
+Base commit: acdd9e7 (see ../beaker.commit)
+License: GNU Lesser General Public License 2.1 (see LICENSE)
+
+The Lyra project has modified this copy for Seek. Changed files carry
+a notice at the top naming the change and date:
+
+  src/http.c      redirect responses send Content-Length: 0 and
+                  Cache-Control: no-store
+  src/routing.c   image responses send Cache-Control: public, max-age=86400
+  src/server.c    default 404 response is a Seek-branded HTML page
+
+The modifications remain under the LGPL-2.1. Seek links libbeaker.a
+statically; full source for both is in this repository, so anyone can
+rebuild and relink against a modified beaker.

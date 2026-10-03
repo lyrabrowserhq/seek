@@ -1,0 +1,17 @@
+Seek - metasearch UI for seek.lyrabrowser.com
+License: GPL-2.0 (see LICENSE)
+
+Third-party components:
+
+beaker/           C web framework, vendored and modified for Seek.
+                  License: LGPL-2.1 (beaker/LICENSE).
+                  Upstream: https://git.bwaaa.monster/beaker
+                  See beaker/FORK-NOTICE for details.
+
+static/icons/lucide/   Lucide icons. License: ISC.
+                  https://github.com/lucide-icons/lucide
+                  Per-file license tags and NOTICE included.
+
+static/fonts/     Geist and Geist Mono. License: SIL OFL-1.1.
+                  Copyright (c) 2023 Vercel, in collaboration with
+                  basement.studio. See static/fonts/OFL.txt.

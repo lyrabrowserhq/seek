@@ -1,3 +1,8 @@
+/*
+ * Modified by the Lyra project on 2026-10-03: redirect responses now send Content-Length: 0 and Cache-Control: no-store.
+ * Upstream: https://git.bwaaa.monster/beaker (commit acdd9e7).
+ * This file remains under the LGPL-2.1; see ../LICENSE.
+ */
 #include "../beaker.h"
 #include "beaker_globals.h"
 #include "security_headers.h"

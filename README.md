@@ -40,4 +40,7 @@ is no third-party analytics beacon.
 searchable. Add feeds to the Lyra index with `POST /v1/feeds` on the
 indexer so they also show up in web results.
 
-License: GPL-2.0.
+License: GPL-2.0 (see LICENSE). Vendored components keep their own
+licenses: beaker/ is LGPL-2.1 and has been modified for Seek
+(see beaker/FORK-NOTICE), lucide icons are ISC, and the Geist fonts
+are SIL OFL-1.1. See NOTICE.
