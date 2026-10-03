@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libcurl4-openssl-dev \
+            libxml2-dev libssl-dev zlib1g-dev pkg-config
+
+      - name: Build beaker and seeker
+        run: make
+
+      - name: Run test suite
+        run: make test
+
+      - name: Build ASan binary
+        run: make asan
+
+      - name: ASan smoke test
+        run: |
+          cp example-config.ini /tmp/seeker-ci.ini
+          sed -i 's/port = .*/port = 18899/' /tmp/seeker-ci.ini
+          sed -i 's|dir = .*|dir = /tmp/seeker_ci_cache|' /tmp/seeker-ci.ini
+          ./bin/seeker-asan --config /tmp/seeker-ci.ini &
+          SRV=$!
+          sleep 2
+          for p in / /news "/news?format=json" /settings /bangs /opensearch.xml; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "http://127.0.0.1:18899$p")
+            echo "$p -> $code"
+            test "$code" = "200" || exit 1
+          done
+          kill $SRV || true

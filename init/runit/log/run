@@ -1,0 +1,3 @@
+#!/bin/sh
+exec 2>&1
+exec chpst -u seeker:seeker svlogd -ttt /var/log/seeker/

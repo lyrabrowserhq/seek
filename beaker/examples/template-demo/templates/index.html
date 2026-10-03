@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{title}}</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        {{include "header.html"}}
+
+        <h1>{{page_heading}}</h1>
+
+        <p>Welcome, <span class="highlight">{{username}}</span>! This page demonstrates the templating capabilities of the Beaker web framework.</p>
+
+        <h2>Simple Variable Substitution</h2>
+        <p>Your favourite colour is: <span class="highlight">{{favourite_colour}}</span></p>
+        <p>The current year is: <span class="highlight">{{current_year}}</span></p>
+        <p>This is a safe string: <span class="code-block">{{safe_html|safe}}</span></p>
+        <p>This is an unsafe string (will be escaped): <span class="code-block">{{unsafe_html}}</span></p>
+
+        <h2>List of Features (String Array)</h2>
+        <p>Here are some features:</p>
+        <ul>
+            {{for feature in features}}
+                <li>{{feature}}</li>
+            {{endfor}}
+        </ul>
+
+        <h2>User Data (Array of Arrays)</h2>
+        <p>Here's some user information:</p>
+        <ul>
+            {{for user_row in users}}
+                <li>
+                    Name: <span class="highlight">{{user_row[0]}}</span>,
+                    Age: <span class="highlight">{{user_row[1]}}</span>,
+                    City: <span class="highlight">{{user_row[2]}}</span>
+                </li>
+            {{endfor}}
+        </ul>
+
+        <h2>Conditional Statements (if/elif/else)</h2>
+        
+        <h3>Simple truthy check</h3>
+        <p>
+        {{if user_logged_in}}
+            <span class="highlight">User is logged in!</span>
+        {{else}}
+            <span>User is NOT logged in.</span>
+        {{endif}}
+        </p>
+
+        <h3>Equality check (role == "admin")</h3>
+        <p>
+        {{if role == "admin"}}
+            <span class="highlight">Welcome, Admin! You have full access.</span>
+        {{elif role == "user"}}
+            <span>Welcome, User! You have standard access.</span>
+        {{else}}
+            <span>Welcome, Guest! You have limited access.</span>
+        {{endif}}
+        </p>
+
+        <h3>Not equal check (status != "inactive")</h3>
+        <p>
+        {{if status != "inactive"}}
+            <span class="highlight">Account is active.</span>
+        {{else}}
+            <span>Account is inactive.</span>
+        {{endif}}
+        </p>
+
+        <h3>Variable existence check (exists)</h3>
+        <p>
+        {{if exists username}}
+            <span class="highlight">Username exists!</span>
+        {{else}}
+            <span>Username does NOT exist.</span>
+        {{endif}}
+        </p>
+        
+        <h3>Variable existence check (not exists)</h3>
+        <p>
+        {{if not exists missing_var}}
+            <span class="highlight">missing_var does NOT exist (as expected)</span>
+        {{else}}
+            <span>missing_var exists (unexpected!)</span>
+        {{endif}}
+        </p>
+
+        <div class="footer">
+            <p>Rendered at: {{timestamp}}</p>
+        </div>
+    </div>
+</body>
+</html>

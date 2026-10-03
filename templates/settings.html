@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="{{__locale_id}}" dir="{{__locale_direction}}">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
+    <meta name="theme-color" content="#ef4444">
+    <meta name="mobile-web-app-capable" content="yes">
+    <title>Seek - {{l("settings_title")}}</title>
+    <link rel="stylesheet" href="/static/main.css?v=8">
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    <link rel="preload" href="static/fonts/geist-variable.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="manifest" href="/manifest.json">
+    <script src="static/theme.js?v=2"></script>
+    <script src="static/shortcuts.js" defer></script>
+    <script src="static/settings.js" defer></script>
+    <link rel="search" type="application/opensearchdescription+xml" title="Seek" href="/opensearch.xml">
+</head>
+
+<body>
+    <a href="#main-content" class="skip-link">{{l("skip_to_content")}}</a>
+    <header class="results-header">
+        <div class="header-inner">
+            <a href="/" class="logo-link" aria-label='{{l("seeker_home")}}'>
+                <h1 class="header-logo">
+                    Seek
+                </h1>
+            </a>
+            <nav class="nav-tabs" aria-label='{{l("nav_search_type")}}'>
+                <div class="nav-tabs-track">
+                    <a href="/">
+                        <span class="ui-icon ui-icon-layout-grid" aria-hidden="true"></span>
+                        {{l("all_tab")}}
+                    </a>
+                    <a href="/images">
+                        <span class="ui-icon ui-icon-image" aria-hidden="true"></span>
+                        {{l("images_tab")}}
+                    </a>
+                    <a href="/news">
+                        <span class="ui-icon ui-icon-newspaper" aria-hidden="true"></span>
+                        {{l("news_tab")}}
+                    </a>
+                </div>
+            </nav>
+            <div class="theme-toggle-container">
+                <button class="theme-toggle-btn" onclick="toggleTheme()" aria-label='{{l("toggle_theme")}}'>
+                    <span class="ui-icon ui-icon-sun sun-icon" aria-hidden="true"></span>
+                    <span class="ui-icon ui-icon-moon moon-icon" aria-hidden="true"></span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+            <main class="settings-container" id="main-content" role="main">
+            <form action="/save_settings" method="GET" class="settings-form">
+                <section class="settings-section">
+                    <h3 class="settings-section-title">{{l("language_label")}}</h3>
+                    <p class="settings-section-desc">{{l("language_desc")}}</p>
+                    <div class="settings-field">
+                        <label class="settings-label" for="locale">{{l("display_language_label")}}</label>
+                        <select id="locale" name="locale" class="settings-select">
+                            {{for loc in locales}}
+                            <option value="{{loc[0]}}" {{if __locale_id == loc[0]}}selected{{endif}}>{{loc[1]}}</option>
+                            {{endfor}}
+                        </select>
+                    </div>
+                </section>
+
+                <section class="settings-section">
+                    <h3 class="settings-section-title">{{l("theme_label")}}</h3>
+                    <p class="settings-section-desc">{{l("theme_desc")}}</p>
+                    <div class="settings-field">
+                        <label class="settings-label" for="settings-theme">{{l("theme_label")}}</label>
+                        <select id="settings-theme" class="settings-select"></select>
+                    </div>
+                    <script>
+                        (function() {
+                            var sel = document.getElementById('settings-theme');
+                            var current = localStorage.getItem('theme') ||
+                                (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+                            if (THEMES.indexOf(current) === -1)
+                                current = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+                            THEMES.forEach(function(t) {
+                                var opt = document.createElement('option');
+                                opt.value = t;
+                                opt.textContent = t.charAt(0).toUpperCase() + t.slice(1).replace(/-/g, ' ');
+                                if (t === current) opt.selected = true;
+                                sel.appendChild(opt);
+                            });
+                            sel.addEventListener('change', function() { setTheme(sel.value); });
+                        })();
+                    </script>
+                </section>
+
+                {{if has_enabled_engines}}
+                <section class="settings-section">
+                    <h3 class="settings-section-title">{{l("engines_label")}}</h3>
+                    <p class="settings-section-desc">{{l("engines_desc")}}</p>
+                    <input type="hidden" name="engines_present" value="1">
+                    <div class="settings-engine-list">
+                        {{for eng in enabled_engines}}
+                        <label class="settings-engine-option" for="engine_{{eng[0]}}">
+                            <input type="checkbox" id="engine_{{eng[0]}}" name="engine_{{eng[0]}}" value="1" class="settings-checkbox" {{eng[2]}}>
+                            <span>{{eng[1]}}</span>
+                        </label>
+                        {{endfor}}
+                    </div>
+                    <div class="settings-field">
+                        <label class="settings-label" for="default_engine">{{l("default_engine_label")}}</label>
+                        <select id="default_engine" name="default_engine" class="settings-select">
+                            <option value="all" {{if default_engine == "all"}}selected{{endif}}>{{l("all_engines_option")}}</option>
+                            {{for eng in enabled_engines}}
+                            {{if eng[2] != ""}}
+                            <option value="{{eng[0]}}" {{if eng[3] == "selected"}}selected{{endif}}>{{eng[1]}}</option>
+                            {{endif}}
+                            {{endfor}}
+                        </select>
+                    </div>
+                </section>
+                {{endif}}
+
+                <section class="settings-section">
+                    <h3 class="settings-section-title">{{l("ranking_label")}}</h3>
+                    <p class="settings-section-desc">{{l("ranking_desc")}}</p>
+                    <input type="hidden" name="forums_present" value="1">
+                    <label class="settings-engine-option" for="forums">
+                        <input type="checkbox" id="forums" name="forums" value="1" class="settings-checkbox" {{forums_checked}}>
+                        <span>{{l("forums_label")}}</span>
+                    </label>
+                </section>
+
+                <section class="settings-section">
+                    <h3 class="settings-section-title">
+                        {{l("slop_label")}}
+                        <span class="alpha-badge">{{l("slop_alpha")}}</span>
+                    </h3>
+                    <p class="settings-section-desc">{{l("slop_desc")}}</p>
+                    <input type="hidden" name="slop_present" value="1">
+                    <div class="settings-field">
+                        <label class="settings-label" for="slop">{{l("slop_label")}}</label>
+                        <select id="slop" name="slop" class="settings-select">
+                            <option value="off" {{if slop_mode == "off"}}selected{{endif}}>{{l("slop_off")}}</option>
+                            <option value="hide" {{if slop_mode == "hide"}}selected{{endif}}>{{l("slop_hide")}}</option>
+                            <option value="derank" {{if slop_mode == "derank"}}selected{{endif}}>{{l("slop_derank")}}</option>
+                            <option value="score" {{if slop_mode == "score"}}selected{{endif}}>{{l("slop_score")}}</option>
+                        </select>
+                    </div>
+                </section>
+
+                <div class="settings-actions">
+                    <p class="settings-save-status" id="settings-save-status" data-saved='{{l("settings_saved")}}' role="status"></p>
+                    <button type="submit" class="settings-save-btn">{{l("save_settings_button")}}</button>
+                </div>
+            </form>
+        </main>
+</body>
+
+</html>

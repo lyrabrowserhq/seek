@@ -1,0 +1,9 @@
+type            = process
+command         = /usr/bin/omnisearch
+working-dir     = /etc/omnisearch
+run-as          = omnisearch
+logfile         = /var/log/omnisearch/omnisearch.log
+logfile-uid     = omnisearch
+logfile-gid     = omnisearch
+restart         = yes
+restart-delay   = 5

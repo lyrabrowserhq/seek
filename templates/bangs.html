@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="{{__locale_id}}" dir="{{__locale_direction}}">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
+    <meta name="theme-color" content="#ef4444">
+    <title>Seek - {{l("bangs_title")}}</title>
+    <link rel="stylesheet" href="/static/main.css?v=8">
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    <link rel="preload" href="static/fonts/geist-variable.woff2" as="font" type="font/woff2" crossorigin>
+    <script src="static/theme.js?v=2"></script>
+    <script src="static/shortcuts.js" defer></script>
+</head>
+
+<body>
+    <a href="#main-content" class="skip-link">{{l("skip_to_content")}}</a>
+    <header class="results-header">
+        <div class="header-inner">
+            <a href="/" class="logo-link" aria-label='{{l("seeker_home")}}'>
+                <h1 class="header-logo">
+                    Seek
+                </h1>
+            </a>
+            <nav class="nav-tabs" aria-label='{{l("nav_search_type")}}'>
+                <div class="nav-tabs-track">
+                    <a href="/">
+                        <span class="ui-icon ui-icon-layout-grid" aria-hidden="true"></span>
+                        {{l("all_tab")}}
+                    </a>
+                    <a href="/images">
+                        <span class="ui-icon ui-icon-image" aria-hidden="true"></span>
+                        {{l("images_tab")}}
+                    </a>
+                    <a href="/news">
+                        <span class="ui-icon ui-icon-newspaper" aria-hidden="true"></span>
+                        {{l("news_tab")}}
+                    </a>
+                </div>
+            </nav>
+            <div class="theme-toggle-container">
+                <button class="theme-toggle-btn" onclick="toggleTheme()" aria-label='{{l("toggle_theme")}}'>
+                    <span class="ui-icon ui-icon-sun sun-icon" aria-hidden="true"></span>
+                    <span class="ui-icon ui-icon-moon moon-icon" aria-hidden="true"></span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+            <main class="settings-container" id="main-content" role="main">
+            <section class="settings-section">
+                <h3 class="settings-section-title">{{l("bangs_title")}}</h3>
+                <p class="settings-section-desc">{{l("bangs_desc")}}</p>
+                <table class="bangs-table">
+                    <thead>
+                        <tr>
+                            <th>{{l("bangs_trigger")}}</th>
+                            <th>{{l("bangs_target")}}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{for b in bangs}}
+                        <tr>
+                            <td class="bang-name">!{{b[0]}}</td>
+                            <td class="bang-url">{{b[1]}}</td>
+                        </tr>
+                        {{endfor}}
+                    </tbody>
+                </table>
+            </section>
+        </main>
+</body>
+
+</html>

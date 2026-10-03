@@ -1,0 +1,9 @@
+type            = process
+command         = /usr/bin/seeker
+working-dir     = /etc/seeker
+run-as          = seeker
+logfile         = /var/log/seeker/seeker.log
+logfile-uid     = seeker
+logfile-gid     = seeker
+restart         = yes
+restart-delay   = 5

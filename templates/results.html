@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="{{__locale_id}}" dir="{{__locale_direction}}">
+    
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
+        <meta name="theme-color" content="#ef4444">
+        <meta name="mobile-web-app-capable" content="yes">
+        <title>
+            Seek - {{query}}
+        </title>
+        <link rel="stylesheet" href="/static/main.css?v=8">
+        <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    <link rel="preload" href="static/fonts/geist-variable.woff2" as="font" type="font/woff2" crossorigin>
+        <link rel="manifest" href="/manifest.json">
+        <script src="static/theme.js?v=2"></script>
+    <script src="static/shortcuts.js" defer></script>
+    <script src="static/suggest.js" defer></script>
+            <script src="static/a11y.js" defer></script>
+        <script src="static/widgets.js" defer></script>
+        <link rel="search" 
+        type="application/opensearchdescription+xml" 
+        title="Seek" href="/opensearch.xml">
+    </head>
+    
+    <body class="results-view">
+        <a href="#main-content" class="skip-link">{{l("skip_to_content")}}</a>
+        <header class="main-header">
+            <div class="header-content">
+                <a href="/" class="logo-link">
+                    <h1 class="header-logo">
+                        Seek
+                    </h1>
+                </a>
+                <nav class="nav-tabs" aria-label='{{l("nav_search_type")}}'>
+                    <div class="nav-tabs-track">
+                        <a href="{{search_href}}" class="active" aria-current="page">
+                            <span class="ui-icon ui-icon-layout-grid" aria-hidden="true"></span>
+                            {{l("all_tab")}}
+                        </a>
+                        <a href="/images?q={{query}}">
+                            <span class="ui-icon ui-icon-image" aria-hidden="true"></span>
+                            {{l("images_tab")}}
+                        </a>
+                        <a href="/news?q={{query}}">
+                            <span class="ui-icon ui-icon-newspaper" aria-hidden="true"></span>
+                            {{l("news_tab")}}
+                        </a>
+                    </div>
+                </nav>
+                <form action="/search" method="GET" class="search-form" id="results-search-form" role="search">
+                    <input name="engine" type="hidden" value="{{selected_engine}}">
+                    <div class="search-input-wrapper">
+                        <label for="results-search" class="visually-hidden">{{l("search_label")}}</label>
+                        <input id="results-search" name="q" type="search" class="search-box" autocomplete="off" placeholder='{{l("search_placeholder")}}'
+                        value="{{query}}" aria-label='{{l("search_label")}}' required>
+                        <button type="submit" class="search-btn" id="results-search-btn" aria-label='{{l("search_button")}}'>
+                            <span class="ui-icon ui-icon-search" aria-hidden="true"></span>
+                        </button>
+                    </div>
+                </form>
+                <div class="theme-toggle-container">
+                                    <a href="/settings" class="settings-link" aria-label='{{l("settings_tab")}}' title='{{l("settings_tab")}}'>
+                    <span class="ui-icon ui-icon-settings" aria-hidden="true"></span>
+                </a>
+                    <button class="theme-toggle-btn" onclick="toggleTheme()" aria-label='{{l("toggle_theme")}}'>
+                        <span class="ui-icon ui-icon-sun sun-icon" aria-hidden="true"></span>
+                        <span class="ui-icon ui-icon-moon moon-icon" aria-hidden="true"></span>
+                    </button>
+                </div>
+            </div>
+        </header>
+        <script>
+            document.addEventListener('DOMContentLoaded', () => {
+                const searchBox = document.getElementById('results-search');
+                const searchBtn = document.getElementById('results-search-btn');
+                const form = document.getElementById('results-search-form');
+                if (!searchBox || !searchBtn || !form) return;
+                const updateBtnState = () => {
+                    const hasValue = searchBox.value.trim().length > 0;
+                    searchBtn.disabled = !hasValue;
+                    searchBtn.style.opacity = hasValue ? '1' : '0.4';
+                    searchBtn.style.cursor = hasValue ? 'pointer' : 'default';
+                };
+                searchBox.addEventListener('input', updateBtnState);
+                updateBtnState();
+                form.addEventListener('submit', (e) => {
+                    if (!searchBox.value.trim()) {
+                        e.preventDefault();
+                    }
+                });
+            });
+        </script>
+        <div class="content-layout">
+            <aside class="sidebar-spacer">
+            </aside>
+            <main class="results-container" id="main-content" role="main">
+                {{if exists engine_filters}}
+                <nav class="engine-filter-list">
+                    {{for filter in engine_filters}}
+                    <a href="{{filter[0]}}" class="{{filter[2]}}">
+                        {{if filter[3] != ""}}
+                        <img src="{{filter[3]}}" alt="" width="16" height="16" loading="lazy" decoding="async" class="site-icon" onerror="this.onerror=null;this.src='/static/icon-placeholder.svg'">
+                        {{endif}}
+                        {{filter[1]}}
+                    </a>
+                    {{endfor}}
+                </nav>
+                {{endif}}
+
+                <div class="degradation-wrap">
+                {{if exists partial_results}}
+                <p class="degradation-notice" role="status">{{l("partial_results_notice")}}</p>
+                {{endif}}
+                {{if exists all_failed}}
+                <p class="degradation-notice degradation-error" role="alert">{{l("all_failed_notice")}}</p>
+                {{endif}}
+                </div>
+
+                {{if exists search_time}}
+                <p class="search-meta">{{l("search_completed_in")}} {{search_time}}</p>
+                {{endif}}
+
+                <div class="results-split">
+                <div class="results-main-column">
+                {{if exists engine_warnings}}
+                <section class="engine-warning-list">
+                    {{for warning in engine_warnings}}
+                    <article class="engine-warning">
+                        <strong class="engine-warning-title">
+                            {{warning[0]}}
+                        </strong>
+                        <p class="engine-warning-copy">
+                            {{warning[1]}}
+                        </p>
+                    </article>
+                    {{endfor}}
+                </section>
+                {{endif}}
+
+                {{if exists no_results}}
+                <div class="empty-state" role="status">
+                    <span class="ui-icon ui-icon-search empty-state-icon" aria-hidden="true"></span>
+                    <h2 class="empty-state-title">{{no_results_msg}}</h2>
+                    <p class="empty-state-copy">{{l("no_results_hint")}}</p>
+                    {{if exists suggestion}}
+                    <p class="empty-state-copy">{{did_you_mean_msg}} <a class="error-suggest" href="{{suggestion_href}}">{{suggestion}}</a></p>
+                    {{endif}}
+                    <div class="empty-state-actions">
+                        <a class="empty-state-link" href="/images?q={{query}}">{{l("search_images_instead")}}</a>
+                        <a class="empty-state-link" href="/news?q={{query}}">{{l("search_news_instead")}}</a>
+                    </div>
+                </div>
+                {{endif}}
+                <div class="results-articles">
+                {{for result in results}}
+                <article class="result">
+                    <div class="result-header">
+                        <div class="result-favicon">
+                            <img src="{{result[4]}}" alt="" width="16" height="16" loading="lazy" decoding="async" class="site-icon" onerror="this.onerror=null;this.src='/static/icon-placeholder.svg'">
+                        </div>
+                        <span class="url">
+                            {{result[1]}}
+                        </span>
+                    </div>
+                    <a href="{{result[0]}}" class="result-title">
+                        {{result[2]}}
+                    </a>
+                    <p class="desc">
+                        {{result[3]}}
+                    </p>
+                    {{if result[5] != ""}}
+                    {{result[5]|safe}}
+                    {{endif}}
+                    {{if result[6] != ""}}
+                    <span class="slop-score">{{result[6]}}</span>
+                    {{endif}}
+                    <p>
+                        <a class="cached" href="https://web.archive.org/web/{{result[0]|safe}}">{{l("view_cached")}}</a>
+                    </p>
+                </article>
+                {{endfor}}
+                </div>
+
+                {{if exists pagination_links}}
+                <nav class="pagination">
+                    {{for link in pagination_links}}
+                    <a class="{{link[2]}}" href="{{link[0]}}">
+                        {{link[1]}}
+                    </a>
+                    {{endfor}}
+                </nav>
+                {{endif}}
+                </div>
+
+                <aside class="infobox-sidebar">
+                {{if exists today_items}}
+                  <section class="today-card">
+                    <h2>{{today_heading}}</h2>
+                    <ol>
+                      {{for item in today_items}}
+                      <li><a href="{{item[1]}}" rel="noopener noreferrer">{{item[0]}}</a></li>
+                      {{endfor}}
+                    </ol>
+                  </section>
+                {{endif}}
+                {{if exists infoboxes}}
+                  {{for info in infoboxes}}
+                     <section class="infobox{{info[5]}}">
+                         <div class="infobox-header">
+                             <h2 class="infobox-title">
+                                 {{info[0]}}
+                             </h2>
+                         </div>
+                         <div class="infobox-main">
+                             {{if info[1]}}
+                             <div class="infobox-image-wrap">
+                             <img src="{{info[1]}}" alt="{{info[0]}}" class="infobox-image" width="640" height="240" decoding="async" loading="lazy" onerror="this.onerror=null;this.parentNode.classList.add('is-broken')">
+                             </div>
+                             {{endif}}
+                             <div class="infobox-content">
+                                 <p class="infobox-summary">
+                                     {{info[2]|safe}}
+                                 </p>
+                                 <a class="read-more" href="{{info[3]}}" target="_blank" rel="noopener noreferrer">
+                                     {{info[4]}}
+                                 </a>
+                                 {{if info[5] == " infobox--wikipedia"}}
+                                 <a class="infobox-wiki-badge" href="{{info[3]}}" target="_blank" rel="noopener noreferrer" title="Wikipedia" aria-label='{{l("open_article_wikipedia")}}'>
+                                     <img src="/static/wikipedia.ico" alt="" width="20" height="20" decoding="async">
+                                 </a>
+                                 {{endif}}
+                             </div>
+                         </div>
+                     </section>
+                     {{endfor}}
+                {{endif}}
+                </aside>
+                </div>
+            </main>
+        </div>
+    </body>
+
+</html>

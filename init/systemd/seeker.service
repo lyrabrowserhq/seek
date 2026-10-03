@@ -1,0 +1,17 @@
+[Unit]
+Description=Seek web search
+After=network.target
+
+[Service]
+Type=simple
+User=seeker
+Group=seeker
+WorkingDirectory=/etc/seeker
+ExecStart=/usr/bin/seeker
+Restart=always
+RestartSec=5
+PrivateTmp=yes
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,4 @@
+#!/bin/sh
+exec 2>&1
+cd /etc/seeker
+exec chpst -u seeker:seeker /usr/bin/seeker

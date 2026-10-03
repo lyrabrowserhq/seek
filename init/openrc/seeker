@@ -1,0 +1,19 @@
+#!/sbin/openrc-run
+
+name=seeker
+description="Seek web search"
+command="/usr/bin/seeker"
+command_background=yes
+pidfile="/run/${RC_SVCNAME}.pid"
+output_log="/var/log/seeker/seeker.log"
+error_log="/var/log/seeker/seeker.err"
+user=seeker
+group=seeker
+directory=/etc/seeker
+respawn_delay=5
+respawn_max=10
+
+depend() {
+    need net
+    after firewall
+}

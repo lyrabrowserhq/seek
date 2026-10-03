@@ -1,0 +1,4 @@
+#! /bin/execlineb -P
+foreground { s6-setsid -g }
+cd /etc/seeker
+exec s6-setuidgid seeker /usr/bin/seeker

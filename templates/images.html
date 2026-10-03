@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="{{__locale_id}}" dir="{{__locale_direction}}">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
+    <meta name="theme-color" content="#ef4444">
+    <meta name="mobile-web-app-capable" content="yes">
+    <title>
+        Seek Images - {{query}}
+    </title>
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    <link rel="preload" href="static/fonts/geist-variable.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="stylesheet" href="/static/main.css?v=8">
+    <link rel="manifest" href="/manifest.json">
+    <script src="static/theme.js?v=2"></script>
+    <script src="static/shortcuts.js" defer></script>
+    <script src="static/suggest.js" defer></script>
+        <script src="static/a11y.js" defer></script>
+    <script src="static/images.js?v=2" defer></script>
+</head>
+
+<body class="results-view images-view">
+    <a href="#main-content" class="skip-link">{{l("skip_to_content")}}</a>
+    <header class="main-header">
+        <div class="header-content">
+            <a href="/" class="logo-link">
+                <h1 class="header-logo">
+                    Seek
+                </h1>
+            </a>
+            <nav class="nav-tabs" aria-label='{{l("nav_search_type")}}'>
+                <div class="nav-tabs-track">
+                    <a href="/search?q={{query}}">
+                        <span class="ui-icon ui-icon-layout-grid" aria-hidden="true"></span>
+                        {{l("all_tab")}}
+                    </a>
+                    <a href="/images?q={{query}}{{filter_qs}}" class="active" aria-current="page">
+                        <span class="ui-icon ui-icon-image" aria-hidden="true"></span>
+                        {{l("images_tab")}}
+                    </a>
+                    <a href="/news?q={{query}}">
+                        <span class="ui-icon ui-icon-newspaper" aria-hidden="true"></span>
+                        {{l("news_tab")}}
+                    </a>
+                </div>
+            </nav>
+            <form action="/images" method="GET" class="search-form" id="images-search-form" role="search">
+                <div class="search-input-wrapper">
+                    <label for="images-search" class="visually-hidden">{{l("images_search_label")}}</label>
+                    <input id="images-search" name="q" type="search" class="search-box" autocomplete="off"
+                        placeholder='{{l("images_search_placeholder")}}' value="{{query}}" aria-label='{{l("images_search_label")}}' required>
+                    <button type="submit" class="search-btn" id="images-search-btn" aria-label='{{l("search_button")}}'>
+                        <span class="ui-icon ui-icon-search" aria-hidden="true"></span>
+                    </button>
+                </div>
+            </form>
+            <div class="theme-toggle-container">
+                <a href="/settings" class="settings-link" aria-label='{{l("settings_tab")}}' title='{{l("settings_tab")}}'>
+                    <span class="ui-icon ui-icon-settings" aria-hidden="true"></span>
+                </a>
+                <button class="theme-toggle-btn" onclick="toggleTheme()" aria-label='{{l("toggle_theme")}}'>
+                    <span class="ui-icon ui-icon-sun sun-icon" aria-hidden="true"></span>
+                    <span class="ui-icon ui-icon-moon moon-icon" aria-hidden="true"></span>
+                </button>
+            </div>
+        </div>
+        <div class="images-toolbar">
+        <div class="images-filters" aria-label='{{l("image_filters")}}'>
+            <label class="images-filter">
+                <span class="visually-hidden">{{l("filter_region")}}</span>
+                <select class="images-filter-select" data-filter="mkt" aria-label='{{l("filter_region")}}'>
+                    <option value="" {{if filter_mkt == ""}}selected{{endif}}>{{l("all_regions")}}</option>
+                    <option value="en-US" {{if filter_mkt == "en-US"}}selected{{endif}}>United States</option>
+                    <option value="en-GB" {{if filter_mkt == "en-GB"}}selected{{endif}}>United Kingdom</option>
+                    <option value="en-CA" {{if filter_mkt == "en-CA"}}selected{{endif}}>Canada</option>
+                    <option value="en-AU" {{if filter_mkt == "en-AU"}}selected{{endif}}>Australia</option>
+                    <option value="en-IN" {{if filter_mkt == "en-IN"}}selected{{endif}}>India</option>
+                    <option value="de-DE" {{if filter_mkt == "de-DE"}}selected{{endif}}>Germany</option>
+                    <option value="fr-FR" {{if filter_mkt == "fr-FR"}}selected{{endif}}>France</option>
+                    <option value="es-ES" {{if filter_mkt == "es-ES"}}selected{{endif}}>Spain</option>
+                    <option value="it-IT" {{if filter_mkt == "it-IT"}}selected{{endif}}>Italy</option>
+                    <option value="pt-BR" {{if filter_mkt == "pt-BR"}}selected{{endif}}>Brazil</option>
+                    <option value="ja-JP" {{if filter_mkt == "ja-JP"}}selected{{endif}}>Japan</option>
+                    <option value="ko-KR" {{if filter_mkt == "ko-KR"}}selected{{endif}}>Korea</option>
+                    <option value="zh-CN" {{if filter_mkt == "zh-CN"}}selected{{endif}}>China</option>
+                    <option value="ru-RU" {{if filter_mkt == "ru-RU"}}selected{{endif}}>Russia</option>
+                    <option value="nl-NL" {{if filter_mkt == "nl-NL"}}selected{{endif}}>Netherlands</option>
+                    <option value="pl-PL" {{if filter_mkt == "pl-PL"}}selected{{endif}}>Poland</option>
+                    <option value="sv-SE" {{if filter_mkt == "sv-SE"}}selected{{endif}}>Sweden</option>
+                    <option value="tr-TR" {{if filter_mkt == "tr-TR"}}selected{{endif}}>Turkey</option>
+                    <option value="id-ID" {{if filter_mkt == "id-ID"}}selected{{endif}}>Indonesia</option>
+                    <option value="ar-SA" {{if filter_mkt == "ar-SA"}}selected{{endif}}>Saudi Arabia</option>
+                </select>
+            </label>
+            <label class="images-filter">
+                <span class="visually-hidden">{{l("filter_safe_search")}}</span>
+                <select class="images-filter-select" data-filter="safe" aria-label='{{l("filter_safe_search")}}'>
+                    <option value="strict" {{if filter_safe == "strict"}}selected{{endif}}>{{l("safe_strict")}}</option>
+                    <option value="moderate" {{if filter_safe == "moderate"}}selected{{endif}}>{{l("safe_moderate")}}</option>
+                    <option value="off" {{if filter_safe == "off"}}selected{{endif}}>{{l("safe_off")}}</option>
+                </select>
+            </label>
+            <label class="images-filter">
+                <span class="visually-hidden">{{l("filter_time")}}</span>
+                <select class="images-filter-select" data-filter="when" aria-label='{{l("filter_time")}}'>
+                    <option value="" {{if filter_when == ""}}selected{{endif}}>{{l("any_time")}}</option>
+                    <option value="day" {{if filter_when == "day"}}selected{{endif}}>{{l("past_24h")}}</option>
+                    <option value="week" {{if filter_when == "week"}}selected{{endif}}>{{l("past_week")}}</option>
+                    <option value="month" {{if filter_when == "month"}}selected{{endif}}>{{l("past_month")}}</option>
+                    <option value="year" {{if filter_when == "year"}}selected{{endif}}>{{l("past_year")}}</option>
+                </select>
+            </label>
+            <label class="images-filter">
+                <span class="visually-hidden">{{l("filter_size")}}</span>
+                <select class="images-filter-select" data-filter="size" aria-label='{{l("filter_size")}}'>
+                    <option value="" {{if filter_size == ""}}selected{{endif}}>{{l("all_sizes")}}</option>
+                    <option value="small" {{if filter_size == "small"}}selected{{endif}}>{{l("size_small")}}</option>
+                    <option value="medium" {{if filter_size == "medium"}}selected{{endif}}>{{l("size_medium")}}</option>
+                    <option value="large" {{if filter_size == "large"}}selected{{endif}}>{{l("size_large")}}</option>
+                    <option value="wallpaper" {{if filter_size == "wallpaper"}}selected{{endif}}>{{l("size_xlarge")}}</option>
+                </select>
+            </label>
+            <label class="images-filter">
+                <span class="visually-hidden">{{l("filter_color")}}</span>
+                <select class="images-filter-select" data-filter="color" aria-label='{{l("filter_color")}}'>
+                    <option value="" {{if filter_color == ""}}selected{{endif}}>{{l("all_colors")}}</option>
+                    <option value="color" {{if filter_color == "color"}}selected{{endif}}>{{l("color_only")}}</option>
+                    <option value="bw" {{if filter_color == "bw"}}selected{{endif}}>{{l("color_bw")}}</option>
+                    <option value="red" {{if filter_color == "red"}}selected{{endif}}>{{l("color_red")}}</option>
+                    <option value="orange" {{if filter_color == "orange"}}selected{{endif}}>{{l("color_orange")}}</option>
+                    <option value="yellow" {{if filter_color == "yellow"}}selected{{endif}}>{{l("color_yellow")}}</option>
+                    <option value="green" {{if filter_color == "green"}}selected{{endif}}>{{l("color_green")}}</option>
+                    <option value="teal" {{if filter_color == "teal"}}selected{{endif}}>{{l("color_teal")}}</option>
+                    <option value="blue" {{if filter_color == "blue"}}selected{{endif}}>{{l("color_blue")}}</option>
+                    <option value="purple" {{if filter_color == "purple"}}selected{{endif}}>{{l("color_purple")}}</option>
+                    <option value="pink" {{if filter_color == "pink"}}selected{{endif}}>{{l("color_pink")}}</option>
+                    <option value="white" {{if filter_color == "white"}}selected{{endif}}>{{l("color_white")}}</option>
+                    <option value="gray" {{if filter_color == "gray"}}selected{{endif}}>{{l("color_gray")}}</option>
+                    <option value="black" {{if filter_color == "black"}}selected{{endif}}>{{l("color_black")}}</option>
+                    <option value="brown" {{if filter_color == "brown"}}selected{{endif}}>{{l("color_brown")}}</option>
+                </select>
+            </label>
+            <label class="images-filter">
+                <span class="visually-hidden">{{l("filter_type")}}</span>
+                <select class="images-filter-select" data-filter="type" aria-label='{{l("filter_type")}}'>
+                    <option value="" {{if filter_type == ""}}selected{{endif}}>{{l("all_types")}}</option>
+                    <option value="photo" {{if filter_type == "photo"}}selected{{endif}}>{{l("type_photo")}}</option>
+                    <option value="clipart" {{if filter_type == "clipart"}}selected{{endif}}>{{l("type_clipart")}}</option>
+                    <option value="linedrawing" {{if filter_type == "linedrawing"}}selected{{endif}}>{{l("type_linedrawing")}}</option>
+                    <option value="transparent" {{if filter_type == "transparent"}}selected{{endif}}>{{l("type_transparent")}}</option>
+                    <option value="animated" {{if filter_type == "animated"}}selected{{endif}}>{{l("type_animated")}}</option>
+                </select>
+            </label>
+            <label class="images-filter">
+                <span class="visually-hidden">{{l("filter_layout")}}</span>
+                <select class="images-filter-select" data-filter="layout" aria-label='{{l("filter_layout")}}'>
+                    <option value="" {{if filter_layout == ""}}selected{{endif}}>{{l("all_layouts")}}</option>
+                    <option value="square" {{if filter_layout == "square"}}selected{{endif}}>{{l("layout_square")}}</option>
+                    <option value="wide" {{if filter_layout == "wide"}}selected{{endif}}>{{l("layout_wide")}}</option>
+                    <option value="tall" {{if filter_layout == "tall"}}selected{{endif}}>{{l("layout_tall")}}</option>
+                </select>
+            </label>
+            <label class="images-filter">
+                <span class="visually-hidden">{{l("filter_license")}}</span>
+                <select class="images-filter-select" data-filter="license" aria-label='{{l("filter_license")}}'>
+                    <option value="" {{if filter_license == ""}}selected{{endif}}>{{l("all_licenses")}}</option>
+                    <option value="any" {{if filter_license == "any"}}selected{{endif}}>{{l("license_cc")}}</option>
+                    <option value="public" {{if filter_license == "public"}}selected{{endif}}>{{l("license_public")}}</option>
+                    <option value="share" {{if filter_license == "share"}}selected{{endif}}>{{l("license_share")}}</option>
+                    <option value="sharecommercial" {{if filter_license == "sharecommercial"}}selected{{endif}}>{{l("license_sharecommercial")}}</option>
+                    <option value="modify" {{if filter_license == "modify"}}selected{{endif}}>{{l("license_modify")}}</option>
+                    <option value="modifycommercial" {{if filter_license == "modifycommercial"}}selected{{endif}}>{{l("license_modifycommercial")}}</option>
+                </select>
+            </label>
+        </div>
+        </div>
+    </header>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const searchBox = document.getElementById('images-search');
+            const searchBtn = document.getElementById('images-search-btn');
+            const form = document.getElementById('images-search-form');
+            if (!searchBox || !searchBtn || !form) return;
+            const updateBtnState = () => {
+                const hasValue = searchBox.value.trim().length > 0;
+                searchBtn.disabled = !hasValue;
+                searchBtn.style.opacity = hasValue ? '1' : '0.4';
+                searchBtn.style.cursor = hasValue ? 'pointer' : 'default';
+            };
+            searchBox.addEventListener('input', updateBtnState);
+            updateBtnState();
+            form.addEventListener('submit', (e) => {
+                if (!searchBox.value.trim()) {
+                    e.preventDefault();
+                }
+            });
+        });
+    </script>
+    <main class="image-results-container" id="main-content" role="main">
+        {{if exists images}}
+        <div class="image-masonry">
+            {{for img in images}}
+            <article class="image-card">
+                <a href="{{img[3]}}" target="_blank" rel="noopener" class="image-card-link">
+                    <div class="image-wrapper">
+                        <img src="{{img[0]}}" alt="{{img[1]}}" class="image-thumb" loading="lazy" decoding="async">
+                        <span class="image-dimensions" aria-hidden="true"></span>
+                    </div>
+                </a>
+                <div class="image-meta">
+                    <p class="image-caption" title="{{img[1]}}">{{img[1]}}</p>
+                    <div class="image-meta-row">
+                        <a href="{{img[2]}}" target="_blank" rel="noopener" class="image-source-link">
+                            <img class="image-favicon" alt="" width="16" height="16" hidden>
+                            <span class="image-domain"></span>
+                        </a>
+                        <div class="image-menu-wrap">
+                            <button type="button" class="image-menu-btn" aria-label='{{l("more_options")}}'
+                                aria-haspopup="true">
+                                <span class="ui-icon ui-icon-ellipsis-vertical" aria-hidden="true"></span>
+                            </button>
+                            <div class="image-menu" hidden>
+                                <a href="{{img[3]}}" target="_blank" rel="noopener">{{l("view_image")}}</a>
+                                <a href="{{img[2]}}" target="_blank" rel="noopener">{{l("visit_site")}}</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </article>
+            {{endfor}}
+        </div>
+        <nav class="pagination images-pagination">
+            <a class="pagination-btn prev" href="/images?q={{query}}{{filter_qs}}&p={{prev_page}}" aria-label='{{l("pagination_prev")}}'></a>
+
+            {{if two_prev_page != 0}}
+            <a class="pagination-btn" href="/images?q={{query}}{{filter_qs}}&p={{two_prev_page}}">
+                {{two_prev_page}}
+            </a>
+            {{endif}}
+
+            {{if prev_page != 0}}
+            <a class="pagination-btn" href="/images?q={{query}}{{filter_qs}}&p={{prev_page}}">
+                {{prev_page}}
+            </a>
+            {{endif}}
+
+            <a class="pagination-current" href="/images?q={{query}}{{filter_qs}}&p={{page}}">
+                {{page}}
+            </a>
+            <a class="pagination-btn" href="/images?q={{query}}{{filter_qs}}&p={{next_page}}">
+                {{next_page}}
+            </a>
+            <a class="pagination-btn" href="/images?q={{query}}{{filter_qs}}&p={{two_next_page}}">
+                {{two_next_page}}
+            </a>
+
+            {{if prev_page == 0}}
+            <a class="pagination-btn" href="/images?q={{query}}{{filter_qs}}&p=4">
+                4
+            </a>
+            {{endif}}
+
+            {{if two_prev_page == 0}}
+            <a class="pagination-btn" href="/images?q={{query}}{{filter_qs}}&p=5">
+                5
+            </a>
+            {{endif}}
+            <a class="pagination-btn next" href="/images?q={{query}}{{filter_qs}}&p={{next_page}}" aria-label='{{l("pagination_next")}}'></a>
+        </nav>
+        {{else}}
+        <div class="empty-state" role="status">
+            <span class="ui-icon ui-icon-image empty-state-icon" aria-hidden="true"></span>
+            <h2 class="empty-state-title">{{l("no_images")}}</h2>
+            <p class="empty-state-copy">{{l("no_images_hint")}}</p>
+            <div class="empty-state-actions">
+                <a class="empty-state-link" href="/search?q={{query}}">{{l("search_web_instead")}}</a>
+                {{if exists has_image_filters}}
+                <a class="empty-state-link" href="/images?q={{query}}">{{l("clear_image_filters")}}</a>
+                {{endif}}
+            </div>
+        </div>
+        {{endif}}
+    </main>
+</body>
+
+</html>

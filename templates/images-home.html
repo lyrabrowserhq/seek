@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="{{__locale_id}}" dir="{{__locale_direction}}">
+
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
+        <meta name="theme-color" content="#ef4444">
+        <meta name="mobile-web-app-capable" content="yes">
+        <meta name="apple-mobile-web-app-status-bar-style" content="default">
+        <title>
+            Seek Images
+        </title>
+        <link rel="stylesheet" href="/static/main.css?v=8">
+        <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+        <link rel="preload" href="/static/fonts/geist-variable.woff2" as="font" type="font/woff2" crossorigin>
+        <link rel="manifest" href="/manifest.json">
+        <script src="/static/theme.js?v=2"></script>
+        <script src="/static/shortcuts.js" defer></script>
+        <script src="/static/suggest.js" defer></script>
+        <script src="/static/a11y.js" defer></script>
+    </head>
+
+    <body>
+        <a href="#main-content" class="skip-link">{{l("skip_to_content")}}</a>
+        <div class="view-home">
+            <div class="theme-toggle-container">
+                <a href="/settings" class="settings-link" aria-label='{{l("settings_tab")}}' title='{{l("settings_tab")}}'>
+                    <span class="ui-icon ui-icon-settings" aria-hidden="true"></span>
+                </a>
+                <button class="theme-toggle-btn" onclick="toggleTheme()" aria-label='{{l("toggle_theme")}}'>
+                    <span class="ui-icon ui-icon-sun sun-icon" aria-hidden="true"></span>
+                    <span class="ui-icon ui-icon-moon moon-icon" aria-hidden="true"></span>
+                </button>
+            </div>
+            <div class="container" id="main-content">
+                <div class="logo-wrapper">
+                    <h1 class="hero-logo">
+                        Seek
+                    </h1>
+                    <p class="tagline">{{l("images_tagline")}}</p>
+                </div>
+                <nav class="home-type-nav" aria-label='{{l("nav_search_type")}}'>
+                    <a href="/">{{l("all_tab")}}</a>
+                    <a href="/images" class="active" aria-current="page">{{l("images_tab")}}</a>
+                    <a href="/news">{{l("news_tab")}}</a>
+                </nav>
+                <form action="/images" class="home-search-form" id="home-search-form" role="search">
+                    <div class="search-input-wrapper">
+                        <label for="home-search" class="visually-hidden">{{l("images_search_label")}}</label>
+                        <input id="home-search" name="q" type="search" class="search-box" placeholder='{{l("images_search_placeholder")}}'
+                        autofocus autocomplete="off" aria-label='{{l("images_search_label")}}' required>
+                        <button type="submit" class="search-btn" id="home-search-btn" aria-label='{{l("search_button")}}'>
+                            <span class="ui-icon ui-icon-search" aria-hidden="true"></span>
+                        </button>
+                    </div>
+                </form>
+                <script>
+                    document.addEventListener('DOMContentLoaded', () => {
+                        const searchBox = document.getElementById('home-search');
+                        const searchBtn = document.getElementById('home-search-btn');
+                        const form = document.getElementById('home-search-form');
+                        const updateBtnState = () => {
+                            const hasValue = searchBox.value.trim().length > 0;
+                            searchBtn.disabled = !hasValue;
+                            searchBtn.style.opacity = hasValue ? '1' : '0.4';
+                            searchBtn.style.cursor = hasValue ? 'pointer' : 'default';
+                        };
+                        searchBox.addEventListener('input', updateBtnState);
+                        setTimeout(updateBtnState, 100);
+                        form.addEventListener('submit', (e) => {
+                            if (!searchBox.value.trim()) {
+                                e.preventDefault();
+                            }
+                        });
+                    });
+                </script>
+            </div>
+        </div>
+    </body>
+
+</html>

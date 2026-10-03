@@ -1,0 +1,2 @@
+#!/bin/execlineb -P
+exec -c chpst -u seeker:seeker s6-log -d 3 /var/log/seeker

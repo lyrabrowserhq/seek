@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>@LAUNCHD_LABEL@</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>@INSTALL_BIN_DIR@/seeker</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>@DATA_DIR@</string>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>@LOG_DIR@/seeker.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>@LOG_DIR@/seeker.err</string>
+</dict>
+</plist>
