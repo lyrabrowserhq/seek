@@ -16,6 +16,7 @@ INSTALL_PREFIX ?= /usr/
 SHARED_EXT     := so
 LDCONFIG       := ldconfig
 LDFLAGS        := -shared -lpthread -lz
+override CFLAGS += -D_GNU_SOURCE
 endif
 
 SRCS := $(wildcard src/*.c)
