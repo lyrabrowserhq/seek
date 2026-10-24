@@ -15,6 +15,7 @@
 #include "Routes/ImageProxy.h"
 #include "Routes/Images.h"
 #include "Routes/News.h"
+#include "Routes/Prefs.h"
 #include "Bangs.h"
 #include "Routes/Bangs.h"
 #include "Routes/Search.h"
@@ -230,6 +231,7 @@ int main(int argc, char **argv) {
   } else {
     fprintf(stderr, "[INFO] Cache initialized at %s\n", cfg.cache_dir);
     cache_cleanup(cfg.cache_ttl_search);
+  cache_start_reaper(cfg.cache_ttl_search);
   }
 
   set_cache_ttl_search(cfg.cache_ttl_search);
@@ -265,6 +267,8 @@ int main(int argc, char **argv) {
   set_handler("/news", news_handler);
   set_handler("/images", images_handler);
   set_handler("/settings", settings_handler);
+  set_handler("/prefs/domain", prefs_domain_handler);
+  set_handler("/prefs/lens", prefs_lens_handler);
   set_handler("/save_settings", settings_save_handler);
   set_handler("/suggest", suggest_handler);
   set_handler("/bangs", bangs_handler);

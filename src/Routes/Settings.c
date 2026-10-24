@@ -1,6 +1,7 @@
 #include "Settings.h"
 #include "../Config.h"
 #include "../Scraping/Scraping.h"
+#include "../Utility/DomainPrefs.h"
 #include "../Utility/Utility.h"
 #include <beaker.h>
 #include <stdlib.h>
@@ -102,6 +103,13 @@ int settings_handler(UrlParams *params) {
   else
     context_set(&ctx, "slop_mode", "off");
   free(slop);
+
+  char *dprefs_text = dprefs_edit_text();
+  context_set(&ctx, "dprefs_text", dprefs_text ? dprefs_text : "");
+  free(dprefs_text);
+  char *ulens = get_cookie("ulens");
+  context_set(&ctx, "ulens_text", ulens ? ulens : "");
+  free(ulens);
 
   char *rendered = render_template("settings.html", &ctx);
   if (rendered) {

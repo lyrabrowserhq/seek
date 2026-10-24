@@ -18,6 +18,7 @@
     <script src="static/suggest.js" defer></script>
             <script src="static/a11y.js" defer></script>
         <script src="static/widgets.js" defer></script>
+        <script src="static/filters.js" defer></script>
         <link rel="search" 
         type="application/opensearchdescription+xml" 
         title="Seek" href="/opensearch.xml">
@@ -46,10 +47,56 @@
                             <span class="ui-icon ui-icon-newspaper" aria-hidden="true"></span>
                             {{l("news_tab")}}
                         </a>
+                        <a href="/search?q={{query}}&amp;lens=videos">
+                            <span class="ui-icon ui-icon-play" aria-hidden="true"></span>
+                            Videos
+                        </a>
+                        <a href="/search?q={{query}}&amp;lens=maps">
+                            <span class="ui-icon ui-icon-map" aria-hidden="true"></span>
+                            Maps
+                        </a>
                     </div>
                 </nav>
+                {{if exists lens_filters}}
+                <details class="box-dropdown lens-dropdown">
+                    <summary class="box-dd-btn{{if selected_lens != ""}} active{{endif}}" aria-label="Lenses" title="Lenses">
+                        <span class="ui-icon ui-icon-funnel" aria-hidden="true"></span>
+                    </summary>
+                    <div class="dd-menu">
+                        {{for lens in lens_filters}}
+                        <a href="{{lens[0]}}" class="dd-item {{lens[2]}}">
+                            {{if lens[3] != ""}}
+                            <span class="ui-icon {{lens[3]}}" aria-hidden="true"></span>
+                            {{endif}}
+                            {{lens[1]}}
+                        </a>
+                        {{endfor}}
+                    </div>
+                </details>
+                {{endif}}
+                {{if exists time_filters}}
+                <details class="box-dropdown time-dropdown">
+                    <summary class="box-dd-btn{{if time_filter != ""}} active{{endif}}" aria-label="Time range" title="Time range">
+                        <span class="ui-icon ui-icon-clock" aria-hidden="true"></span>
+                    </summary>
+                    <div class="dd-menu">
+                        {{for t in time_filters}}
+                        <a href="{{t[0]}}" class="dd-item {{t[2]}}">{{t[1]}}</a>
+                        {{endfor}}
+                    </div>
+                </details>
+                {{endif}}
                 <form action="/search" method="GET" class="search-form" id="results-search-form" role="search">
                     <input name="engine" type="hidden" value="{{selected_engine}}">
+                    {{if selected_lens != ""}}
+                    <input name="lens" type="hidden" value="{{selected_lens}}">
+                    {{endif}}
+                    {{if time_filter != ""}}
+                    <input name="t" type="hidden" value="{{time_filter}}">
+                    {{endif}}
+                    {{if verbatim}}
+                    <input name="v" type="hidden" value="1">
+                    {{endif}}
                     <div class="search-input-wrapper">
                         <label for="results-search" class="visually-hidden">{{l("search_label")}}</label>
                         <input id="results-search" name="q" type="search" class="search-box" autocomplete="off" placeholder='{{l("search_placeholder")}}'
@@ -90,13 +137,18 @@
                     }
                 });
             });
+            document.addEventListener('click', (e) => {
+                document.querySelectorAll('.box-dropdown[open], .engine-overflow[open]').forEach(d => {
+                    if (!d.contains(e.target)) d.removeAttribute('open');
+                });
+            });
         </script>
         <div class="content-layout">
             <aside class="sidebar-spacer">
             </aside>
             <main class="results-container" id="main-content" role="main">
                 {{if exists engine_filters}}
-                <nav class="engine-filter-list">
+                <nav class="engine-filter-list" id="engine-filters" aria-label='{{l("engines_label")}}'>
                     {{for filter in engine_filters}}
                     <a href="{{filter[0]}}" class="{{filter[2]}}">
                         {{if filter[3] != ""}}
@@ -105,20 +157,28 @@
                         {{filter[1]}}
                     </a>
                     {{endfor}}
+                    {{if exists engine_filters_more}}
+                    <details class="engine-overflow">
+                        <summary class="engine-filter engine-overflow-btn" aria-label="More engines" title="More engines">
+                            More <span class="ui-icon ui-icon-chevron-down" aria-hidden="true"></span>
+                        </summary>
+                        <div class="dd-menu">
+                            {{for filter in engine_filters_more}}
+                            <a href="{{filter[0]}}" class="dd-item {{filter[2]}}">
+                                {{if filter[3] != ""}}
+                                <img src="{{filter[3]}}" alt="" width="16" height="16" loading="lazy" decoding="async" class="site-icon" onerror="this.onerror=null;this.src='/static/icon-placeholder.svg'">
+                                {{endif}}
+                                {{filter[1]}}
+                            </a>
+                            {{endfor}}
+                        </div>
+                    </details>
+                    {{endif}}
                 </nav>
                 {{endif}}
 
-                <div class="degradation-wrap">
-                {{if exists partial_results}}
-                <p class="degradation-notice" role="status">{{l("partial_results_notice")}}</p>
-                {{endif}}
-                {{if exists all_failed}}
-                <p class="degradation-notice degradation-error" role="alert">{{l("all_failed_notice")}}</p>
-                {{endif}}
-                </div>
-
                 {{if exists search_time}}
-                <p class="search-meta">{{l("search_completed_in")}} {{search_time}}</p>
+                <p class="search-meta">{{if exists result_count}}{{result_count}} results - {{endif}}{{l("search_completed_in")}} {{search_time}}</p>
                 {{endif}}
 
                 <div class="results-split">
@@ -152,6 +212,11 @@
                     </div>
                 </div>
                 {{endif}}
+
+                {{if exists thin_suggestion}}
+                <p class="empty-state-copy did-you-mean-inline">{{did_you_mean_msg}} <a class="error-suggest" href="{{thin_suggestion_href}}">{{thin_suggestion}}</a></p>
+                {{endif}}
+
                 <div class="results-articles">
                 {{for result in results}}
                 <article class="result">
@@ -167,7 +232,7 @@
                         {{result[2]}}
                     </a>
                     <p class="desc">
-                        {{result[3]}}
+                        {{if result[8] != ""}}<span class="result-date">{{result[8]}} - </span>{{endif}}{{if result[11] != ""}}{{result[11]|safe}}{{else}}{{result[3]}}{{endif}}
                     </p>
                     {{if result[5] != ""}}
                     {{result[5]|safe}}
@@ -175,8 +240,24 @@
                     {{if result[6] != ""}}
                     <span class="slop-score">{{result[6]}}</span>
                     {{endif}}
-                    <p>
+                    <p class="result-links">
                         <a class="cached" href="https://web.archive.org/web/{{result[0]|safe}}">{{l("view_cached")}}</a>
+                        {{if result[7] != ""}}
+                        <details class="rank-menu">
+                            <summary title='{{l("rank_options")}}' aria-label='{{l("rank_options")}}'>
+                                <span class="ui-icon ui-icon-ellipsis-vertical" aria-hidden="true"></span>
+                            </summary>
+                            <div class="rank-menu-list">
+                                <a href="/prefs/domain?h={{result[7]}}&v=pin">{{l("rank_pin")}}</a>
+                                <a href="/prefs/domain?h={{result[7]}}&v=raise">{{l("rank_raise")}}</a>
+                                <a href="/prefs/domain?h={{result[7]}}&v=lower">{{l("rank_lower")}}</a>
+                                <a href="/prefs/domain?h={{result[7]}}&v=block">{{l("rank_block")}}</a>
+                            </div>
+                        </details>
+                        {{endif}}
+                        {{if result[9] != ""}}
+                        <a class="more-from" href="{{result[9]}}">+{{result[10]}} {{l("more_from_site")}} {{result[7]}}</a>
+                        {{endif}}
                     </p>
                 </article>
                 {{endfor}}
@@ -190,6 +271,19 @@
                     </a>
                     {{endfor}}
                 </nav>
+                {{endif}}
+
+                {{if exists partial_results}}
+                <div class="degradation-notice" role="status">
+                    <span>{{l("partial_results_notice")}}</span>
+                    <button type="button" class="degradation-dismiss" onclick="this.parentElement.remove()" aria-label='{{l("dismiss")}}' title='{{l("dismiss")}}'>&times;</button>
+                </div>
+                {{endif}}
+                {{if exists all_failed}}
+                <div class="degradation-notice degradation-error" role="alert">
+                    <span>{{l("all_failed_notice")}}</span>
+                    <button type="button" class="degradation-dismiss" onclick="this.parentElement.remove()" aria-label='{{l("dismiss")}}' title='{{l("dismiss")}}'>&times;</button>
+                </div>
                 {{endif}}
                 </div>
 

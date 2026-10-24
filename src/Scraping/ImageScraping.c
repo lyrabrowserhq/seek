@@ -4,8 +4,7 @@
 #include "../Utility/HttpClient.h"
 #include "../Utility/Rank.h"
 #include "Config.h"
-#include <libxml/HTMLparser.h>
-#include <libxml/xpath.h>
+#include "Hdoc.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -22,111 +21,44 @@ static char *encode_image_query(CURL *tmp, const char *query) {
   return curl_easy_escape(tmp, query, 0);
 }
 
-static int parse_image_node(xmlNodePtr node, ImageResult *result) {
-  xmlNodePtr img_node = NULL;
-  xmlNodePtr tit_node = NULL;
-  xmlNodePtr des_node = NULL;
-  xmlNodePtr thumb_link = NULL;
+static int parse_image_node(Hdoc *doc, Hnode *node, ImageResult *result) {
+  /* gigablast item markup: a.thumb > div.cico > img for the thumbnail,
+     a.tit for the title/page link, div.meta > div.des for the blurb */
+  Hnode *thumb_link = hdoc_find1(doc, node, "a[class*='thumb']");
+  Hnode *img = hdoc_find1(doc, thumb_link, "div.cico img");
+  if (!img)
+    img = hdoc_find1(doc, node, "a[class*='thumb'] img");
 
-  for (xmlNodePtr child = node->children; child; child = child->next) {
-    if (child->type != XML_ELEMENT_NODE)
-      continue;
+  Hnode *tit = hdoc_find1(doc, node, "a[class*='tit']");
+  if (!tit)
+    tit = hdoc_find1(doc, node, "div.meta a[class*='tit']");
+  Hnode *des = hdoc_find1(doc, node, "div.meta div.des");
+  if (!des)
+    des = hdoc_find1(doc, node, "div.des");
 
-    if (xmlStrcmp(child->name, (const xmlChar *)"a") == 0) {
-      xmlChar *class = xmlGetProp(child, (const xmlChar *)"class");
-      if (class) {
-        if (xmlStrstr(class, (const xmlChar *)"thumb") != NULL) {
-          thumb_link = child;
-          for (xmlNodePtr thumb_child = child->children; thumb_child;
-               thumb_child = thumb_child->next) {
-            if (xmlStrcmp(thumb_child->name, (const xmlChar *)"div") == 0) {
-              xmlChar *div_class =
-                  xmlGetProp(thumb_child, (const xmlChar *)"class");
-              if (div_class &&
-                  xmlStrcmp(div_class, (const xmlChar *)"cico") == 0) {
-                for (xmlNodePtr cico_child = thumb_child->children; cico_child;
-                     cico_child = cico_child->next) {
-                  if (xmlStrcmp(cico_child->name, (const xmlChar *)"img") ==
-                      0) {
-                    img_node = cico_child;
-                    break;
-                  }
-                }
-              }
-              if (div_class)
-                xmlFree(div_class);
-            }
-          }
-        } else if (xmlStrstr(class, (const xmlChar *)"tit") != NULL) {
-          tit_node = child;
-        }
-        xmlFree(class);
-      }
-    } else if (xmlStrcmp(child->name, (const xmlChar *)"div") == 0) {
-      xmlChar *class = xmlGetProp(child, (const xmlChar *)"class");
-      if (class && xmlStrcmp(class, (const xmlChar *)"meta") == 0) {
-        for (xmlNodePtr meta_child = child->children; meta_child;
-             meta_child = meta_child->next) {
-          if (xmlStrcmp(meta_child->name, (const xmlChar *)"div") == 0) {
-            xmlChar *div_class =
-                xmlGetProp(meta_child, (const xmlChar *)"class");
-            if (div_class) {
-              if (xmlStrcmp(div_class, (const xmlChar *)"des") == 0) {
-                des_node = meta_child;
-              }
-              xmlFree(div_class);
-            }
-          } else if (xmlStrcmp(meta_child->name, (const xmlChar *)"a") == 0) {
-            xmlChar *a_class = xmlGetProp(meta_child, (const xmlChar *)"class");
-            if (a_class && xmlStrstr(a_class, (const xmlChar *)"tit") != NULL) {
-              tit_node = meta_child;
-            }
-            if (a_class)
-              xmlFree(a_class);
-          }
-        }
-      }
-      if (class)
-        xmlFree(class);
-    }
-  }
+  char *iurl = img ? hnode_attr(img, "src") : NULL;
+  char *full_url = thumb_link ? hnode_attr(thumb_link, "href") : NULL;
+  char *title = des ? hnode_text(des) : (tit ? hnode_text(tit) : NULL);
+  char *rurl = tit ? hnode_attr(tit, "href") : NULL;
 
-  xmlChar *iurl =
-      img_node ? xmlGetProp(img_node, (const xmlChar *)"src") : NULL;
-  xmlChar *full_url =
-      thumb_link ? xmlGetProp(thumb_link, (const xmlChar *)"href") : NULL;
-  xmlChar *title = des_node ? xmlNodeGetContent(des_node)
-                            : (tit_node ? xmlNodeGetContent(tit_node) : NULL);
-  xmlChar *rurl =
-      tit_node ? xmlGetProp(tit_node, (const xmlChar *)"href") : NULL;
-
-  if (!iurl || strlen((char *)iurl) == 0) {
-    if (iurl)
-      xmlFree(iurl);
-    if (title)
-      xmlFree(title);
-    if (rurl)
-      xmlFree(rurl);
-    if (full_url)
-      xmlFree(full_url);
+  if (!iurl || !*iurl) {
+    free(iurl);
+    free(title);
+    free(rurl);
+    free(full_url);
     return 0;
   }
 
-  char *proxy_url = proxy_wrap_image_url((char *)iurl);
-  result->thumbnail_url = proxy_url ? proxy_url : strdup((char *)iurl);
-  result->title = strdup(title ? (char *)title : "Image");
-  result->page_url = strdup(rurl ? (char *)rurl : "#");
-  result->full_url = strdup(full_url ? (char *)full_url : "#");
+  char *proxy_url = proxy_wrap_image_url(iurl);
+  result->thumbnail_url = proxy_url ? proxy_url : strdup(iurl);
+  result->title = strdup(title ? title : "Image");
+  result->page_url = strdup(rurl ? rurl : "#");
+  result->full_url = strdup(full_url ? full_url : "#");
 
-  if (iurl)
-    xmlFree(iurl);
-  if (title)
-    xmlFree(title);
-  if (rurl)
-    xmlFree(rurl);
-  if (full_url)
-    xmlFree(full_url);
-
+  free(iurl);
+  free(title);
+  free(rurl);
+  free(full_url);
   return 1;
 }
 
@@ -185,56 +117,40 @@ static int scrape_images_bing(const char *query, int page,
     return -1;
   }
 
-  htmlDocPtr doc = htmlReadMemory(resp.memory, resp.size, NULL, NULL,
-                                  HTML_PARSE_RECOVER | HTML_PARSE_NOERROR);
+  Hdoc *doc = hdoc_parse(resp.memory, resp.size);
   if (!doc) {
     http_response_free(&resp);
     return -1;
   }
 
-  xmlXPathContextPtr xpathCtx = xmlXPathNewContext(doc);
-  if (!xpathCtx) {
-    xmlFreeDoc(doc);
-    http_response_free(&resp);
-    return -1;
-  }
+  HnodeList items = hdoc_select(doc, NULL, "div.item");
 
-  xmlXPathObjectPtr xpathObj =
-      xmlXPathEvalExpression((const xmlChar *)"//div[@class='item']", xpathCtx);
-
-  if (!xpathObj || !xpathObj->nodesetval) {
-    if (xpathObj)
-      xmlXPathFreeObject(xpathObj);
-    xmlXPathFreeContext(xpathCtx);
-    xmlFreeDoc(doc);
+  int max_images =
+      (items.count < IMAGE_RESULTS_PER_PAGE) ? items.count : IMAGE_RESULTS_PER_PAGE;
+  if (max_images <= 0) {
+    hlist_free(&items);
+    hdoc_free(doc);
     http_response_free(&resp);
     return 0;
   }
 
-  int nodes = xpathObj->nodesetval->nodeNr;
-  int max_images =
-      (nodes < IMAGE_RESULTS_PER_PAGE) ? nodes : IMAGE_RESULTS_PER_PAGE;
-
   ImageResult *results = malloc(sizeof(ImageResult) * max_images);
   if (!results) {
-    xmlXPathFreeObject(xpathObj);
-    xmlXPathFreeContext(xpathCtx);
-    xmlFreeDoc(doc);
+    hlist_free(&items);
+    hdoc_free(doc);
     http_response_free(&resp);
     return -1;
   }
 
   int count = 0;
-  for (int i = 0; i < nodes && count < IMAGE_RESULTS_PER_PAGE; i++) {
-    xmlNodePtr node = xpathObj->nodesetval->nodeTab[i];
-    if (parse_image_node(node, &results[count])) {
+  for (int i = 0; i < items.count && count < IMAGE_RESULTS_PER_PAGE; i++) {
+    if (parse_image_node(doc, items.items[i], &results[count])) {
       count++;
     }
   }
 
-  xmlXPathFreeObject(xpathObj);
-  xmlXPathFreeContext(xpathCtx);
-  xmlFreeDoc(doc);
+  hlist_free(&items);
+  hdoc_free(doc);
   http_response_free(&resp);
 
   *out_results = results;
@@ -592,6 +508,168 @@ static int scrape_images_qwant(const char *query, int page,
   return 0;
 }
 
+/* unsplash internal search api - high-quality photos, no key needed */
+static int scrape_images_unsplash(const char *query, int page,
+                                  ImageResult **out_results, int *out_count) {
+  *out_results = NULL;
+  *out_count = 0;
+  if (!query || !query[0])
+    return -1;
+  CURL *tmp = curl_easy_init();
+  if (!tmp)
+    return -1;
+  char *encoded = encode_image_query(tmp, query);
+  curl_easy_cleanup(tmp);
+  if (!encoded)
+    return -1;
+  char url[BUFFER_SIZE_XLARGE];
+  snprintf(url, sizeof(url),
+           "https://unsplash.com/napi/search/photos?query=%s&per_page=%d&page=%d",
+           encoded, IMAGE_RESULTS_PER_PAGE, page);
+  free(encoded);
+
+  HttpResponse resp = http_get(url, "Seek/1.0 (https://seek.lyrabrowser.com)");
+  if (!resp.memory)
+    return -1;
+
+  int cap = IMAGE_RESULTS_PER_PAGE;
+  ImageResult *results = malloc(sizeof(ImageResult) * cap);
+  if (!results) {
+    http_response_free(&resp);
+    return -1;
+  }
+  int count = 0;
+  const char *lim = resp.memory + resp.size;
+  const char *p = strstr(resp.memory, "\"urls\"");
+  while (p && p < lim && count < cap) {
+    /* each result object has one urls block with thumb/full variants */
+    const char *c = p;
+    char *small = ov_find_string(&c, "small");
+    c = p;
+    char *regular = ov_find_string(&c, "regular");
+    char *title = NULL;
+    const char *tk = strstr(p, "\"alt_description\"");
+    if (tk && tk < p + 3000) {
+      const char *t = tk;
+      title = ov_find_string(&t, "alt_description");
+    }
+    char *landing = NULL;
+    const char *lk = strstr(p, "\"html\"");
+    if (lk && lk < p + 4000) {
+      const char *u = lk;
+      landing = ov_find_string(&u, "html");
+    }
+    const char *full = regular ? regular : small;
+    if (full && full[0]) {
+      char *proxy_thumb = proxy_wrap_image_url(small ? small : full);
+      results[count].thumbnail_url =
+          proxy_thumb ? proxy_thumb : strdup(small ? small : full);
+      results[count].title = title ? title : strdup("Photo");
+      title = NULL;
+      results[count].page_url =
+          landing ? landing : strdup("https://unsplash.com/");
+      landing = NULL;
+      results[count].full_url = strdup(full);
+      count++;
+    }
+    free(small);
+    free(regular);
+    free(title);
+    free(landing);
+    p = strstr(p + 6, "\"urls\"");
+  }
+  http_response_free(&resp);
+  if (count == 0) {
+    free(results);
+    return -1;
+  }
+  *out_results = results;
+  *out_count = count;
+  return 0;
+}
+
+/* flickr public photos feed - tag search, latest 20 items, page 1 only */
+static int scrape_images_flickr(const char *query, int page,
+                                ImageResult **out_results, int *out_count) {
+  *out_results = NULL;
+  *out_count = 0;
+  if (!query || !query[0] || page > 1)
+    return -1;
+  CURL *tmp = curl_easy_init();
+  if (!tmp)
+    return -1;
+  char *encoded = encode_image_query(tmp, query);
+  curl_easy_cleanup(tmp);
+  if (!encoded)
+    return -1;
+  char url[BUFFER_SIZE_XLARGE];
+  /* first word as the tag keeps results on-topic for multiword queries */
+  char tag[64] = {0};
+  snprintf(tag, sizeof(tag), "%s", encoded);
+  char *sp = strchr(tag, ' ');
+  if (sp)
+    *sp = '\0';
+  snprintf(url, sizeof(url),
+           "https://api.flickr.com/services/feeds/photos_public.gne?tags=%s&format=json&nojsoncallback=1",
+           tag);
+  free(encoded);
+
+  HttpResponse resp = http_get(url, "Seek/1.0 (https://seek.lyrabrowser.com)");
+  if (!resp.memory)
+    return -1;
+
+  int cap = IMAGE_RESULTS_PER_PAGE;
+  ImageResult *results = malloc(sizeof(ImageResult) * cap);
+  if (!results) {
+    http_response_free(&resp);
+    return -1;
+  }
+  int count = 0;
+  const char *lim = resp.memory + resp.size;
+  const char *p = strstr(resp.memory, "\"media\"");
+  while (p && p < lim && count < cap) {
+    const char *c = p;
+    char *m = ov_find_string(&c, "m");
+    char *title = NULL;
+    const char *tk = strstr(p, "\"title\"");
+    if (tk && tk < p + 3000) {
+      const char *t = tk;
+      title = ov_find_string(&t, "title");
+    }
+    char *link = NULL;
+    const char *lk = strstr(p, "\"link\"");
+    if (lk && lk < p + 2000) {
+      const char *u = lk;
+      link = ov_find_string(&u, "link");
+    }
+    if (m && m[0]) {
+      char *proxy_thumb = proxy_wrap_image_url(m);
+      results[count].thumbnail_url = proxy_thumb ? proxy_thumb : strdup(m);
+      results[count].title =
+          (title && title[0]) ? title : strdup("Flickr photo");
+      title = NULL;
+      results[count].page_url =
+          link ? link : strdup("https://www.flickr.com/");
+      link = NULL;
+      results[count].full_url = m;
+      m = NULL;
+      count++;
+    }
+    free(m);
+    free(title);
+    free(link);
+    p = strstr(p + 7, "\"media\"");
+  }
+  http_response_free(&resp);
+  if (count == 0) {
+    free(results);
+    return -1;
+  }
+  *out_results = results;
+  *out_count = count;
+  return 0;
+}
+
 typedef struct {
   ImageResult img;
   int score;
@@ -609,17 +687,21 @@ static int cmp_ranked_image(const void *a, const void *b) {
   return x->ord - y->ord;
 }
 
-int scrape_images(const char *query, int page, const ImageFilters *filters,
+int scrape_images(const char *query, int page, const ImageFilters *filters __attribute__((unused)),
                   ImageResult **out_results, int *out_count) {
   *out_results = NULL;
   *out_count = 0;
 
+  /* bing and qwant are both dead upstream (JS shell / datadome) - keep the
+     scrapers but stop spending a fetch on them */
   ImageResult *sets[4] = {NULL, NULL, NULL, NULL};
   int counts[4] = {0, 0, 0, 0};
-  scrape_images_bing(query, page, filters, &sets[0], &counts[0]);
-  scrape_images_openverse(query, page, &sets[1], &counts[1]);
-  scrape_images_commons(query, page, &sets[2], &counts[2]);
-  scrape_images_qwant(query, page, &sets[3], &counts[3]);
+  scrape_images_openverse(query, page, &sets[0], &counts[0]);
+  scrape_images_commons(query, page, &sets[1], &counts[1]);
+  scrape_images_unsplash(query, page, &sets[2], &counts[2]);
+  scrape_images_flickr(query, page, &sets[3], &counts[3]);
+  (void)scrape_images_bing;
+  (void)scrape_images_qwant;
 
   int total = counts[0] + counts[1] + counts[2] + counts[3];
   if (total == 0) {

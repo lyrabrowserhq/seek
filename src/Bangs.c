@@ -40,6 +40,33 @@ static void bang_defaults(void) {
   bang_add("archwiki", "https://wiki.archlinux.org/index.php?search=%s");
   bang_add("tw", "https://twitter.com/search?q=%s");
   bang_add("x", "https://twitter.com/search?q=%s");
+  bang_add("g", "https://www.google.com/search?q=%s");
+  bang_add("google", "https://www.google.com/search?q=%s");
+  bang_add("d", "https://duckduckgo.com/?q=%s");
+  bang_add("ddg", "https://duckduckgo.com/?q=%s");
+  bang_add("hn", "https://hn.algolia.com/?q=%s");
+  bang_add("hackernews", "https://hn.algolia.com/?q=%s");
+  bang_add("lob", "https://lobste.rs/search?what=stories&q=%s");
+  bang_add("lobsters", "https://lobste.rs/search?what=stories&q=%s");
+  bang_add("lemmy", "https://lemmy.world/search?q=%s");
+  bang_add("a", "https://www.amazon.com/s?k=%s");
+  bang_add("amazon", "https://www.amazon.com/s?k=%s");
+  bang_add("ebay", "https://www.ebay.com/sch/i.html?_nkw=%s");
+  bang_add("imdb", "https://www.imdb.com/find?q=%s");
+  bang_add("npm", "https://www.npmjs.com/search?q=%s");
+  bang_add("crate", "https://crates.io/search?q=%s");
+  bang_add("crates", "https://crates.io/search?q=%s");
+  bang_add("mdn", "https://developer.mozilla.org/en-US/search?q=%s");
+  bang_add("pypi", "https://pypi.org/search/?q=%s");
+  bang_add("se", "https://stackexchange.com/search?q=%s");
+  bang_add("t", "https://translate.google.com/?text=%s");
+  bang_add("translate", "https://translate.google.com/?text=%s");
+  bang_add("wa", "https://www.wolframalpha.com/input?i=%s");
+  bang_add("i", "/images?q=%s");
+  bang_add("img", "/images?q=%s");
+  bang_add("images", "/images?q=%s");
+  bang_add("n", "/news?q=%s");
+  bang_add("news", "/news?q=%s");
 }
 
 static int bang_override(const char *name, const char *tmpl) {

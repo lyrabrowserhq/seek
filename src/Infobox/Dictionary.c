@@ -5,8 +5,8 @@
 #include "../Utility/XmlHelper.h"
 #include <ctype.h>
 #include <curl/curl.h>
-#include <libxml/HTMLparser.h>
-#include <libxml/xpath.h>
+#include "../Scraping/Hdoc.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -209,6 +209,40 @@ char *construct_dictionary_url(const char *query) {
   return url;
 }
 
+static char *find1_text(Hdoc *d, const char *css) {
+  Hnode *n = hdoc_find1(d, NULL, css);
+  return n ? hnode_text(n) : NULL;
+}
+
+static InfoBox dict_parse_html(const char *html, size_t len,
+                               const char *page_url) {
+  InfoBox info = {NULL, NULL, NULL, NULL};
+  Hdoc *doc = hdoc_parse(html, len);
+  if (!doc)
+    return info;
+
+  char *word = find1_text(doc, "span.hw.dhw");
+  char *pron =
+      find1_text(doc, "span.us.dpron-i span.ipa.dipa");
+  char *pos = find1_text(doc, "span.pos.dpos");
+  char *def = find1_text(doc, "div.def.ddef_d.db");
+  char *ex = find1_text(doc, "span.eg.deg");
+
+  if (word && def) {
+    info.title = strdup("Dictionary");
+    info.extract = build_html(word, pron, pos, def, ex);
+    info.thumbnail_url = strdup("/static/dictionary.jpg");
+    info.url = strdup(page_url);
+  }
+  free(word);
+  free(pron);
+  free(pos);
+  free(def);
+  free(ex);
+  hdoc_free(doc);
+  return info;
+}
+
 InfoBox fetch_dictionary_data(const char *query) {
   InfoBox info = {NULL, NULL, NULL, NULL};
 
@@ -223,32 +257,7 @@ InfoBox fetch_dictionary_data(const char *query) {
     if (cache_get(cache_key, (time_t)get_cache_ttl_infobox(), &cached_data,
                   &cached_size) == 0 &&
         cached_data && cached_size > 0) {
-      htmlDocPtr doc = htmlReadMemory(cached_data, cached_size, url, NULL,
-                                      HTML_PARSE_RECOVER | HTML_PARSE_NOERROR |
-                                          HTML_PARSE_NOWARNING);
-      if (doc) {
-        char *word = xpath_text(doc, "//span[@class='hw dhw']");
-        char *pron = xpath_text(
-            doc,
-            "//span[@class='us dpron-i']//span[@class='ipa dipa lpr-2 lpl-1']");
-        char *pos = xpath_text(doc, "//span[@class='pos dpos']");
-        char *def = xpath_text(doc, "(//div[@class='def ddef_d db'])[1]");
-        char *ex = xpath_text(doc, "(//span[@class='eg deg'])[1]");
-
-        if (word && def) {
-          info.title = strdup("Dictionary");
-          info.extract = build_html(word, pron, pos, def, ex);
-          info.thumbnail_url = strdup("/static/dictionary.jpg");
-          info.url = strdup(url);
-        }
-
-        free(word);
-        free(pron);
-        free(pos);
-        free(def);
-        free(ex);
-        xmlFreeDoc(doc);
-      }
+      info = dict_parse_html(cached_data, cached_size, url);
       free(cached_data);
       free(cache_key);
       free(url);
@@ -266,32 +275,7 @@ InfoBox fetch_dictionary_data(const char *query) {
     }
     free(cache_key);
 
-    htmlDocPtr doc = htmlReadMemory(resp.memory, resp.size, url, NULL,
-                                    HTML_PARSE_RECOVER | HTML_PARSE_NOERROR |
-                                        HTML_PARSE_NOWARNING);
-    if (doc) {
-      char *word = xpath_text(doc, "//span[@class='hw dhw']");
-      char *pron = xpath_text(
-          doc,
-          "//span[@class='us dpron-i']//span[@class='ipa dipa lpr-2 lpl-1']");
-      char *pos = xpath_text(doc, "//span[@class='pos dpos']");
-      char *def = xpath_text(doc, "(//div[@class='def ddef_d db'])[1]");
-      char *ex = xpath_text(doc, "(//span[@class='eg deg'])[1]");
-
-      if (word && def) {
-        info.title = strdup("Dictionary");
-        info.extract = build_html(word, pron, pos, def, ex);
-        info.thumbnail_url = strdup("/static/dictionary.jpg");
-        info.url = strdup(url);
-      }
-
-      free(word);
-      free(pron);
-      free(pos);
-      free(def);
-      free(ex);
-      xmlFreeDoc(doc);
-    }
+    info = dict_parse_html(resp.memory, resp.size, url);
   }
 
   http_response_free(&resp);

@@ -18,6 +18,7 @@ void xml_result_free(SearchResult *results, int count) {
     free(results[i].url);
     free(results[i].title);
     free(results[i].snippet);
+    free(results[i].date);
   }
   free(results);
 }
@@ -56,6 +57,24 @@ char *xpath_text(xmlDocPtr doc, const char *xpath) {
     return NULL;
   }
 
+  xmlChar *content = xmlNodeGetContent(obj->nodesetval->nodeTab[0]);
+  char *result = content ? strdup((char *)content) : NULL;
+  if (content)
+    xmlFree(content);
+  xmlXPathFreeObject(obj);
+  return result;
+}
+
+/* first match's text under the ctx node, dup'd for callers to free */
+char *xpath_text_ctx(xmlXPathContextPtr ctx, const char *xpath) {
+  if (!ctx || !xpath)
+    return NULL;
+  xmlXPathObjectPtr obj = xmlXPathEvalExpression((const xmlChar *)xpath, ctx);
+  if (!obj || !obj->nodesetval || obj->nodesetval->nodeNr == 0) {
+    if (obj)
+      xmlXPathFreeObject(obj);
+    return NULL;
+  }
   xmlChar *content = xmlNodeGetContent(obj->nodesetval->nodeTab[0]);
   char *result = content ? strdup((char *)content) : NULL;
   if (content)

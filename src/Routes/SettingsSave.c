@@ -1,5 +1,7 @@
 #include "SettingsSave.h"
+#include <ctype.h>
 #include "../Scraping/Scraping.h"
+#include "../Utility/DomainPrefs.h"
 #include "../Utility/Utility.h"
 #include <stdlib.h>
 #include <string.h>
@@ -15,6 +17,8 @@ int settings_save_handler(UrlParams *params) {
   int forums = 0;
   int slop_present = 0;
   const char *slop = "off";
+  int dprefs_present = 0;
+  const char *dprefs = NULL;
   int want_json = 0;
   int total = engines_total();
   char **selected_ids = calloc((size_t)total, sizeof(char *));
@@ -37,6 +41,10 @@ int settings_save_handler(UrlParams *params) {
         slop_present = 1;
       } else if (strcmp(params->params[i].key, "slop") == 0) {
         slop = params->params[i].value;
+      } else if (strcmp(params->params[i].key, "dprefs_present") == 0) {
+        dprefs_present = 1;
+      } else if (strcmp(params->params[i].key, "dprefs") == 0) {
+        dprefs = params->params[i].value;
       } else if (strcmp(params->params[i].key, "format") == 0 &&
                  strcmp(params->params[i].value, "json") == 0) {
         want_json = 1;
@@ -80,6 +88,32 @@ int settings_save_handler(UrlParams *params) {
         strcmp(slop, "score") == 0)
       validated = slop;
     set_cookie("slop", validated, PREF_COOKIE_EXPIRES, "/", false, false);
+  }
+
+  if (dprefs_present)
+    dprefs_save_editor_text(dprefs ? dprefs : "");
+  {
+    int ulens_present = 0;
+    const char *ulens = NULL;
+    for (int i = 0; i < params->count; i++) {
+      if (strcmp(params->params[i].key, "ulens") == 0) {
+        ulens = params->params[i].value;
+        ulens_present = 1;
+      }
+    }
+    if (ulens_present) {
+      char clean[2048];
+      size_t o = 0;
+      for (const char *p = ulens; p && *p && o + 1 < sizeof(clean); p++) {
+        char c = *p;
+        if (isalnum((unsigned char)c) || c == '.' || c == '-' || c == '_' ||
+            c == ',' || c == ' ')
+          clean[o++] = c;
+      }
+      clean[o] = '\0';
+      set_cookie("ulens", clean, "expires=Wed, 01 Jan 2031 00:00:00 GMT", "/",
+                 false, false);
+    }
   }
 
   if (default_engine_present) {

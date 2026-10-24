@@ -130,6 +130,25 @@
                 </section>
 
                 <section class="settings-section">
+                    <h3 class="settings-section-title">{{l("dprefs_label")}}</h3>
+                    <p class="settings-section-desc">{{l("dprefs_desc")}}</p>
+                    <input type="hidden" name="dprefs_present" value="1">
+                    <div class="settings-field">
+                        <label class="settings-label" for="dprefs">{{l("dprefs_label")}}</label>
+                        <textarea id="dprefs" name="dprefs" class="settings-textarea" rows="8" spellcheck="false" placeholder="++wikipedia.org&#10;+docs.rs&#10;-pinterest.com&#10;!example.com">{{dprefs_text}}</textarea>
+                    </div>
+                </section>
+
+                <section class="settings-section">
+                    <h3 class="settings-section-title">Custom lens</h3>
+                    <p class="settings-section-desc">Comma-separated domains boosted when the Custom lens is selected. Example: stackoverflow.com, news.ycombinator.com, docs.rs</p>
+                    <div class="settings-field">
+                        <label class="settings-label" for="ulens">Custom lens domains</label>
+                        <textarea id="ulens" name="ulens" class="settings-textarea" rows="3" spellcheck="false" placeholder="stackoverflow.com, docs.rs, news.ycombinator.com">{{ulens_text}}</textarea>
+                    </div>
+                </section>
+
+                <section class="settings-section">
                     <h3 class="settings-section-title">
                         {{l("slop_label")}}
                         <span class="alpha-badge">{{l("slop_alpha")}}</span>

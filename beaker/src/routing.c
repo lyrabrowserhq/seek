@@ -255,6 +255,12 @@ static int parse_query_params(const char *query, UrlParams *params) {
   return 0;
 }
 
+int beaker_parse_body_params(const char *body, UrlParams *params) {
+  if (!body || !params)
+    return -1;
+  return parse_query_params(body, params);
+}
+
 char *parse_request_url(const char *request_line, UrlParams *params) {
   if (params == NULL)
     return NULL;

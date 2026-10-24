@@ -27,3 +27,4 @@ void set_cache_ttl_image(int ttl);
 int get_cache_ttl_image(void);
 
 #endif
+int cache_start_reaper(time_t ttl_search);

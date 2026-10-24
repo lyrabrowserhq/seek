@@ -3105,3 +3105,287 @@ input[type="search"]::-webkit-search-cancel-button {
     gap: 8px;
     line-height: 16px;
 }
+
+/* Domain ranking menu on results */
+.result-links {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin: 4px 0 0 0;
+    flex-wrap: wrap;
+}
+
+.rank-menu {
+    position: relative;
+    display: inline-block;
+}
+
+.rank-menu summary {
+    list-style: none;
+    cursor: pointer;
+    color: var(--text-muted);
+    display: inline-flex;
+    align-items: center;
+    padding: 2px;
+    border-radius: 4px;
+}
+
+.rank-menu summary::-webkit-details-marker {
+    display: none;
+}
+
+.rank-menu summary:hover {
+    color: var(--text-primary);
+}
+
+.rank-menu[open] summary {
+    color: var(--text-primary);
+}
+
+.rank-menu-list {
+    position: absolute;
+    left: 0;
+    top: 100%;
+    z-index: 30;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 6px 0;
+    min-width: 140px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+}
+
+.rank-menu-list a {
+    display: block;
+    padding: 7px 14px;
+    color: var(--text-secondary);
+    text-decoration: none;
+    font-size: 0.85rem;
+    white-space: nowrap;
+}
+
+.rank-menu-list a:hover {
+    background: var(--bg-main);
+    color: var(--text-primary);
+}
+
+.more-from {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    text-decoration: none;
+}
+
+.more-from:hover {
+    text-decoration: underline;
+}
+
+.result-date {
+    color: var(--text-muted);
+    font-weight: 600;
+}
+
+.lens-filter-list {
+    margin-top: 8px;
+}
+
+.lens-filter-list .engine-filter {
+    font-size: 0.8rem;
+    padding: 4px 10px;
+}
+
+.settings-textarea {
+    background: var(--bg-main);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-size: 0.9rem;
+    font-family: inherit;
+    max-width: 480px;
+    resize: vertical;
+    line-height: 1.5;
+}
+
+/* engine filter overflow dropdown */
+.engine-overflow {
+    position: relative;
+    display: inline-block;
+}
+
+.engine-overflow summary {
+    list-style: none;
+    cursor: pointer;
+}
+
+.engine-overflow summary::-webkit-details-marker {
+    display: none;
+}
+
+.engine-more {
+    padding: 6px 10px;
+}
+
+.engine-overflow-menu {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    z-index: 40;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 170px;
+    max-height: 60vh;
+    overflow-y: auto;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+}
+
+.engine-overflow-menu .engine-filter {
+    border-radius: 6px;
+    white-space: nowrap;
+}
+
+/* dismissable degradation notice */
+.degradation-notice {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 16px;
+}
+
+.degradation-dismiss {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 1.1rem;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0 4px;
+    flex-shrink: 0;
+}
+
+.degradation-dismiss:hover {
+    color: var(--text-primary);
+}
+
+/* in-searchbox dropdowns (lens, time) + engine overflow */
+.ui-icon-funnel { --ui-icon: url("/static/icons/lucide/funnel.svg"); }
+.ui-icon-clock { --ui-icon: url("/static/icons/lucide/clock.svg"); }
+.ui-icon-play { --ui-icon: url("/static/icons/lucide/play.svg"); }
+.ui-icon-map-pin { --ui-icon: url("/static/icons/lucide/map-pin.svg"); }
+.ui-icon-message-square { --ui-icon: url("/static/icons/lucide/message-square.svg"); }
+.ui-icon-file-text { --ui-icon: url("/static/icons/lucide/file-text.svg"); }
+.ui-icon-book-open { --ui-icon: url("/static/icons/lucide/book-open.svg"); }
+.ui-icon-graduation-cap { --ui-icon: url("/static/icons/lucide/graduation-cap.svg"); }
+.ui-icon-utensils { --ui-icon: url("/static/icons/lucide/utensils.svg"); }
+.ui-icon-library { --ui-icon: url("/static/icons/lucide/library.svg"); }
+.ui-icon-audio-lines { --ui-icon: url("/static/icons/lucide/audio-lines.svg"); }
+.ui-icon-shopping-bag { --ui-icon: url("/static/icons/lucide/shopping-bag.svg"); }
+.ui-icon-chevron-down { --ui-icon: url("/static/icons/lucide/chevron-down.svg"); }
+
+.box-dropdown {
+    position: relative;
+    align-self: center;
+    z-index: 30;
+}
+
+.box-dd-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border-radius: var(--radius-full);
+    color: var(--text-secondary);
+    cursor: pointer;
+    list-style: none;
+}
+.box-dd-btn::-webkit-details-marker { display: none; }
+.box-dd-btn:hover { color: var(--text-primary); }
+.box-dd-btn.active { color: var(--accent); }
+
+.box-dropdown[open] > .box-dd-btn,
+.engine-overflow[open] > .engine-overflow-btn {
+    background: var(--bg-hover, rgba(0,0,0,0.06));
+    color: var(--text-primary);
+}
+
+.dd-menu {
+    position: absolute;
+    top: calc(100% + 10px);
+    left: -14px;
+    min-width: 190px;
+    max-height: 320px;
+    overflow-y: auto;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+    padding: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    z-index: 60;
+}
+
+.dd-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    color: var(--text-primary);
+    text-decoration: none;
+    font-size: 0.95rem;
+    white-space: nowrap;
+}
+.dd-item:hover { background: var(--bg-hover, rgba(0,0,0,0.06)); }
+.dd-item.engine-filter.active {
+    background: var(--bg-hover, rgba(0,0,0,0.08));
+    font-weight: 600;
+}
+
+.engine-overflow {
+    position: relative;
+    display: inline-flex;
+}
+.engine-overflow-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 34px;
+    list-style: none;
+}
+.engine-overflow-btn::-webkit-details-marker { display: none; }
+.engine-overflow-btn .ui-icon {
+    width: 16px;
+    height: 16px;
+}
+.engine-overflow .dd-menu {
+    left: auto;
+    right: 0;
+}
+
+/* rank-menu dots were half the size of the other action icons */
+.rank-menu summary .ui-icon {
+    width: 18px;
+    height: 18px;
+}
+.ui-icon-map { --ui-icon: url("/static/icons/lucide/map.svg"); }
+
+/* overflow affordance reads as a menu button, not a result ⋮ */
+.engine-overflow-btn {
+    gap: 4px;
+    font-size: 0.85rem;
+}
+.engine-overflow-btn .ui-icon {
+    width: 12px;
+    height: 12px;
+}
+.engine-overflow[open] .engine-overflow-btn .ui-icon {
+    transform: rotate(180deg);
+}

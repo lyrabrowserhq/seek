@@ -21,6 +21,7 @@
 #include "../Utility/HtmlEscape.h"
 #include "../Utility/Utility.h"
 #include "../Utility/HttpClient.h"
+#include "../Utility/DomainPrefs.h"
 #include "../Utility/JsonHelper.h"
 #include "../Utility/Rank.h"
 #include "../Utility/Slop.h"
@@ -32,11 +33,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 #include <strings.h>
 #include <time.h>
 #include <sys/time.h>
 
 extern Config global_config;
+
+char *get_base_url(const char *input);
 
 typedef struct {
   int handler_idx;
@@ -63,16 +67,63 @@ typedef struct {
   char *url;
   char *title;
   char *snippet;
+  char *date;
+  char *host;
   char engine_ids[256];
   double score;
   int first_seen;
 } MergedResult;
+
+static int hex_val(char c) {
+  if (c >= '0' && c <= '9')
+    return c - '0';
+  if (c >= 'a' && c <= 'f')
+    return c - 'a' + 10;
+  if (c >= 'A' && c <= 'F')
+    return c - 'A' + 10;
+  return -1;
+}
+
+/* decode %XX only for chars that never change a url's meaning so encoded
+ * and unencoded spellings of the same page dedup together */
+static int safe_decode_char(int c) {
+  if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+      (c >= '0' && c <= '9'))
+    return 1;
+  switch (c) {
+  case '-':
+  case '_':
+  case '.':
+  case '~':
+  case '(':
+  case ')':
+    return 1;
+  }
+  return 0;
+}
+
+static void decode_pct_inplace(char *s) {
+  char *d = s;
+  for (char *p = s; *p; p++) {
+    if (*p == '%' && p[1] && p[2]) {
+      int h = hex_val(p[1]), l = hex_val(p[2]);
+      if (h >= 0 && l >= 0 && safe_decode_char(h * 16 + l)) {
+        *d++ = (char)(h * 16 + l);
+        p += 2;
+        continue;
+      }
+    }
+    *d++ = *p;
+  }
+  *d = '\0';
+}
 
 static char *canonicalize_url(const char *url) {
   if (!url || !url[0])
     return NULL;
   char buf[1024];
   snprintf(buf, sizeof(buf), "%s", url);
+  decode_pct_inplace(buf);
   char *host = strstr(buf, "://");
   char *end;
   if (host) {
@@ -98,6 +149,41 @@ static char *canonicalize_url(const char *url) {
   char *frag = strchr(host ? host : buf, '#');
   if (frag)
     *frag = '\0';
+  /* strip tracking params so utm copies of a page dedup with the bare one */
+  char *q = strchr(buf, '?');
+  if (q) {
+    char *dst = q + 1;
+    char *src = dst;
+    int first = 1;
+    static const char *trackers[] = {
+        "fbclid", "gclid", "dclid", "msclkid", "mc_cid", "mc_eid",
+        "igshid", "_ga",    "_gl",   "ref_src", "ved",
+    };
+    while (*src) {
+      char *amp = strchr(src, '&');
+      size_t plen = amp ? (size_t)(amp - src) : strlen(src);
+      char *eq = memchr(src, '=', plen);
+      size_t nlen = eq ? (size_t)(eq - src) : plen;
+      int drop = nlen > 4 && strncmp(src, "utm_", 4) == 0;
+      for (size_t t = 0; !drop && t < sizeof(trackers) / sizeof(trackers[0]);
+           t++) {
+        size_t tl = strlen(trackers[t]);
+        if (nlen == tl && strncmp(src, trackers[t], tl) == 0)
+          drop = 1;
+      }
+      if (!drop) {
+        if (!first)
+          *dst++ = '&';
+        memmove(dst, src, plen);
+        dst += plen;
+        first = 0;
+      }
+      src += plen + (amp ? 1 : 0);
+    }
+    *dst = '\0';
+    if (dst == q + 1)
+      *q = '\0';
+  }
   size_t len = strlen(buf);
   if (len > 1 && buf[len - 1] == '/')
     buf[len - 1] = '\0';
@@ -113,8 +199,9 @@ static int cookie_allows_forums(void) {
   return ok;
 }
 
-static int allow_forums_for_query(const char *q) {
-  return rank_query_allows_forums(q) || cookie_allows_forums();
+static int allow_forums_for_query(const char *q, const char *lens) {
+  return rank_query_allows_forums(q) || cookie_allows_forums() ||
+         lens_forces_forums(lens);
 }
 
 static int merged_result_cmp(const void *a, const void *b) {
@@ -143,9 +230,116 @@ static void merged_result_append_engine(MergedResult *m, const char *id) {
   }
 }
 
+#define MAX_SITE_OPS 8
+
+typedef struct {
+  char includes[MAX_SITE_OPS][256];
+  int n_includes;
+  char excludes[MAX_SITE_OPS][256];
+  int n_excludes;
+} SiteFilter;
+
+static int host_suffix_match(const char *host, const char *domain) {
+  size_t hl = host ? strlen(host) : 0;
+  size_t dl = domain ? strlen(domain) : 0;
+  if (!hl || !dl || hl < dl)
+    return 0;
+  if (hl == dl)
+    return strcasecmp(host, domain) == 0;
+  return host[hl - dl - 1] == '.' && strcasecmp(host + hl - dl, domain) == 0;
+}
+
+/* pull site:x and -site:x tokens out of the query so the merge can enforce
+ * them even when an upstream engine ignores the operator */
+static void parse_site_ops(const char *q, SiteFilter *f) {
+  memset(f, 0, sizeof(*f));
+  if (!q)
+    return;
+  const char *p = q;
+  while (*p) {
+    if (isspace((unsigned char)*p) || *p == '"') {
+      p++;
+      continue;
+    }
+    char tok[300];
+    size_t tn = 0;
+    while (*p && !isspace((unsigned char)*p) && *p != '"' &&
+           tn < sizeof(tok) - 1)
+      tok[tn++] = *p++;
+    while (*p && !isspace((unsigned char)*p) && *p != '"')
+      p++;
+    tok[tn] = '\0';
+    int neg = 0;
+    const char *t = tok;
+    if (*t == '-') {
+      neg = 1;
+      t++;
+    }
+    if (strncasecmp(t, "site:", 5) != 0 || !t[5])
+      continue;
+    if (neg && f->n_excludes < MAX_SITE_OPS)
+      snprintf(f->excludes[f->n_excludes++], 256, "%s", t + 5);
+    else if (!neg && f->n_includes < MAX_SITE_OPS)
+      snprintf(f->includes[f->n_includes++], 256, "%s", t + 5);
+  }
+}
+
+/* results that are themselves a search form or engine results page are
+ * junk hits - drop engine ui urls from the merge */
+static int result_url_is_search_ui(const char *url) {
+  static const char *engine_hosts[] = {
+      "google.com",    "bing.com",      "duckduckgo.com", "brave.com",
+      "ecosia.org",    "startpage.com", "qwant.com",      "mojeek.com",
+      "yandex.com",    "baidu.com",     "mwmbl.org",      "wiby.me",
+      "marginalia.nu", "stract.com",    "naver.com",      "kagi.com",
+      "yep.com",       "swisscows.com", "metager.org",    "gibiru.com",
+      "lycos.com",     "entireweb.com", "ask.com",        "aol.com",
+      "github.com",    "gitlab.com",    "sourceforge.net"};
+  if (!url)
+    return 0;
+  char *host = get_base_url(url);
+  if (!host)
+    return 0;
+  int is_engine = 0;
+  for (size_t i = 0; i < sizeof(engine_hosts) / sizeof(engine_hosts[0]); i++) {
+    if (host_suffix_match(host, engine_hosts[i])) {
+      is_engine = 1;
+      break;
+    }
+  }
+  if (!is_engine) {
+    free(host);
+    return 0;
+  }
+  const char *p = strstr(url, "://");
+  p = p ? strchr(p + 3, '/') : NULL;
+  const char *path = p ? p : "/";
+  int ui = strncmp(path, "/search", 7) == 0 || strncmp(path, "/lite", 5) == 0 ||
+           strncmp(path, "/html", 5) == 0 || strncmp(path, "/s?", 3) == 0 ||
+           strncmp(path, "/res/", 5) == 0 || strncmp(path, "/find", 5) == 0 ||
+           strcmp(path, "/") == 0;
+  free(host);
+  return ui;
+}
+
+static int site_filter_pass(const SiteFilter *f, const char *host) {
+  if (f->n_includes) {
+    int ok = 0;
+    for (int i = 0; i < f->n_includes; i++)
+      if (host_suffix_match(host, f->includes[i]))
+        ok = 1;
+    if (!ok)
+      return 0;
+  }
+  for (int i = 0; i < f->n_excludes; i++)
+    if (host_suffix_match(host, f->excludes[i]))
+      return 0;
+  return 1;
+}
+
 static int merge_rank_results(ScrapeJob *jobs, SearchResult **all_results,
                               int engine_idx, const char *query,
-                              MergedResult **out) {
+                              const char *lens, MergedResult **out) {
   int total = 0;
   for (int i = 0; i < engine_idx; i++)
     total += jobs[i].results_count;
@@ -157,16 +351,46 @@ static int merge_rank_results(ScrapeJob *jobs, SearchResult **all_results,
   if (!merged)
     return -1;
 
-  int allow_forums = allow_forums_for_query(query);
+  int allow_forums = allow_forums_for_query(query, lens);
+  SiteFilter site_ops;
+  parse_site_ops(query, &site_ops);
+  int filter_active = site_ops.n_includes || site_ops.n_excludes;
   int n = 0;
   int seq = 0;
   for (int i = 0; i < engine_idx; i++) {
     const char *eid = jobs[i].engine ? jobs[i].engine->id : "";
     for (int j = 0; j < jobs[i].results_count; j++) {
       SearchResult *r = &all_results[i][j];
+      char *rhost = get_base_url(r->url ? r->url : "");
+      double weight =
+          rank_host_weight(r->url, allow_forums) * dprefs_url_weight(r->url) *
+          lens_host_weight(r->url, lens);
+      if (lens_is_valid(lens)) {
+        int ln = 0;
+        const char *const *le = lens_engines(lens, &ln);
+        for (int li = 0; li < ln; li++)
+          if (strcmp(eid, le[li]) == 0 && weight < 3.0) {
+            weight = rank_host_weight(r->url, allow_forums) *
+                     dprefs_url_weight(r->url) * 3.5;
+            break;
+          }
+      }
+      int drop = (filter_active && !site_filter_pass(&site_ops, rhost)) ||
+                 weight <= 0.0 || result_url_is_search_ui(r->url);
+      if (drop) {
+        free(rhost);
+        free(r->url);
+        free(r->title);
+        free(r->snippet);
+        free(r->date);
+        r->url = NULL;
+        r->title = NULL;
+        r->snippet = NULL;
+        r->date = NULL;
+        continue;
+      }
       char *key = r->url ? canonicalize_url(r->url) : NULL;
-      double rs = (1.0 / (MERGE_RANK_K + j)) *
-                  rank_host_weight(r->url, allow_forums);
+      double rs = (1.0 / (MERGE_RANK_K + j)) * weight;
 
       if (key) {
         int k;
@@ -178,14 +402,18 @@ static int merge_rank_results(ScrapeJob *jobs, SearchResult **all_results,
             break;
           }
         }
-        if (k < n)
+        if (k < n) {
+          free(rhost);
           continue;
+        }
       }
 
       merged[n].key = key;
       merged[n].url = r->url;
       merged[n].title = r->title;
       merged[n].snippet = r->snippet;
+      merged[n].date = r->date;
+      merged[n].host = rhost;
       snippet_strip_feed_meta(merged[n].snippet);
       merged[n].score = rs;
       merged[n].first_seen = seq++;
@@ -194,10 +422,38 @@ static int merge_rank_results(ScrapeJob *jobs, SearchResult **all_results,
       r->url = NULL;
       r->title = NULL;
       r->snippet = NULL;
+      r->date = NULL;
       n++;
     }
   }
 
+  /* apply lens and domain prefs again on the merged score: per-engine
+   * weights alone get diluted when a result is confirmed by many engines */
+  if (lens_is_valid(lens)) {
+    int ln = 0;
+    const char *const *le = lens_engines(lens, &ln);
+    for (int i = 0; i < n; i++) {
+      int from_lens_engine = 0;
+      char ids[256];
+      snprintf(ids, sizeof(ids), "%s", merged[i].engine_ids);
+      for (char *tok = strtok(ids, ","); tok; tok = strtok(NULL, ","))
+        for (int li = 0; li < ln; li++)
+          if (strcmp(tok, le[li]) == 0)
+            from_lens_engine = 1;
+      if (from_lens_engine)
+        merged[i].score *= 3.5;
+      else
+        merged[i].score *= lens_host_weight(merged[i].url, lens);
+    }
+  }
+  {
+    char *pc = get_cookie("dprefs");
+    if (pc && pc[0]) {
+      for (int i = 0; i < n; i++)
+        merged[i].score *= dprefs_url_weight(merged[i].url);
+    }
+    free(pc);
+  }
   qsort(merged, (size_t)n, sizeof(MergedResult), merged_result_cmp);
   *out = merged;
   return n;
@@ -239,6 +495,8 @@ static int apply_slop_to_merged(MergedResult *merged, int n, int mode,
         free(merged[i].url);
         free(merged[i].title);
         free(merged[i].snippet);
+        free(merged[i].date);
+        free(merged[i].host);
         continue;
       }
       if (w != i)
@@ -264,6 +522,8 @@ static void free_merged_results(MergedResult *merged, int count) {
     free(merged[i].url);
     free(merged[i].title);
     free(merged[i].snippet);
+    free(merged[i].date);
+    free(merged[i].host);
   }
   free(merged);
 }
@@ -279,8 +539,9 @@ typedef struct {
 } InfoBoxHandler;
 
 enum {
-  RESULT_FIELD_COUNT = 7,
+  RESULT_FIELD_COUNT = 12,
   PAGER_WINDOW_SIZE = 5,
+  MAX_RESULTS_PER_HOST = 2,
 };
 
 static InfoBox fetch_wiki_wrapper(char *query) {
@@ -601,8 +862,18 @@ static const SearchEngine *find_enabled_engine(const char *engine_id) {
   return NULL;
 }
 
+static char *build_search_href_tv(const char *query, const char *engine_id,
+                                  const char *lens, int page,
+                                  const char *time_filter, int verbatim);
+
 static char *build_search_href(const char *query, const char *engine_id,
-                               int page) {
+                               const char *lens, int page) {
+  return build_search_href_tv(query, engine_id, lens, page, "", 0);
+}
+
+static char *build_search_href_tv(const char *query, const char *engine_id,
+                                  const char *lens, int page,
+                                  const char *time_filter, int verbatim) {
   const char *safe_query = query ? query : "";
   int use_engine = engine_id && engine_id[0] != '\0' &&
                    !engine_id_matches(engine_id, "all");
@@ -610,8 +881,14 @@ static char *build_search_href(const char *query, const char *engine_id,
 
   if (use_engine)
     needed += strlen("&engine=") + strlen(engine_id);
+  if (lens_is_valid(lens))
+    needed += strlen("&lens=") + strlen(lens);
   if (page > 1)
     needed += strlen("&p=") + 16;
+  if (time_filter && time_filter[0])
+    needed += strlen("&t=") + strlen(time_filter);
+  if (verbatim)
+    needed += strlen("&v=1");
 
   char *href = (char *)malloc(needed);
   if (!href)
@@ -623,6 +900,16 @@ static char *build_search_href(const char *query, const char *engine_id,
     strcat(href, "&engine=");
     strcat(href, engine_id);
   }
+  if (lens_is_valid(lens)) {
+    strcat(href, "&lens=");
+    strcat(href, lens);
+  }
+  if (time_filter && time_filter[0]) {
+    strcat(href, "&t=");
+    strcat(href, time_filter);
+  }
+  if (verbatim)
+    strcat(href, "&v=1");
 
   if (page > 1) {
     char page_buf[16];
@@ -631,6 +918,190 @@ static char *build_search_href(const char *query, const char *engine_id,
     strcat(href, page_buf);
   }
 
+  return href;
+}
+
+/* escape the snippet then wrap escaped query terms in <b> - both sides are
+   escaped first so injected markup never survives, and the <b> itself is
+   added by us after escaping */
+static char *highlight_terms(const char *snippet, const char *query) {
+  if (!snippet || !snippet[0])
+    return strdup("");
+  size_t cap = strlen(snippet) * 8 + 256;
+  char *esc = malloc(cap);
+  if (!esc)
+    return strdup("");
+  html_escape_text(snippet, esc, cap);
+
+  if (!query || !query[0])
+    return esc;
+
+  /* collect unique alnum terms len>=2 */
+  char qcopy[512];
+  snprintf(qcopy, sizeof(qcopy), "%s", query);
+  char *terms[32];
+  int nt = 0;
+  for (char *tok = strtok(qcopy, " \t"); tok && nt < 32;
+       tok = strtok(NULL, " \t")) {
+    /* strip operator prefixes like site: -site: " phrase quotes */
+    while (*tok == '-' || *tok == '"' || *tok == '+')
+      tok++;
+    if (strchr(tok, ':'))
+      continue;
+    if (strlen(tok) < 2)
+      continue;
+    int dup = 0;
+    for (int i = 0; i < nt; i++)
+      if (!strcasecmp(terms[i], tok))
+        dup = 1;
+    if (!dup)
+      terms[nt++] = tok;
+  }
+
+  /* longest-first so "attention" wins over "a" inside "attention" */
+  for (int i = 0; i < nt; i++)
+    for (int j = i + 1; j < nt; j++)
+      if (strlen(terms[j]) > strlen(terms[i])) {
+        char *t = terms[i];
+        terms[i] = terms[j];
+        terms[j] = t;
+      }
+
+  size_t ocap = strlen(esc) + nt * 8 + 256;
+  char *out = malloc(ocap);
+  if (!out)
+    return esc;
+  size_t o = 0;
+  const char *p = esc;
+  while (*p && o + 16 < ocap) {
+    int matched = 0;
+    for (int i = 0; i < nt; i++) {
+      size_t tl = strlen(terms[i]);
+      if (strncasecmp(p, terms[i], tl) == 0 &&
+          (p == esc || !isalnum((unsigned char)p[-1])) &&
+          !isalnum((unsigned char)p[tl])) {
+        if (o + tl + 8 < ocap) {
+          memcpy(out + o, "<b>", 3);
+          o += 3;
+          memcpy(out + o, p, tl);
+          o += tl;
+          memcpy(out + o, "</b>", 4);
+          o += 4;
+          p += tl;
+          matched = 1;
+        }
+        break;
+      }
+    }
+    if (!matched)
+      out[o++] = *p++;
+  }
+  out[o] = '\0';
+  free(esc);
+  return out;
+}
+
+/* "Tue, 06 Oct 2026 10:00:00 +0000" -> "6 Oct 2026" */
+static char *format_result_date(const char *raw) {
+  if (!raw || !raw[0])
+    return NULL;
+  const char *start = strstr(raw, ", ");
+  start = start ? start + 2 : raw;
+  while (*start == ' ')
+    start++;
+  struct tm tm;
+  memset(&tm, 0, sizeof(tm));
+  char *end = strptime(start, "%d %b %Y", &tm);
+  if (!end)
+    end = strptime(start, "%Y-%m-%d", &tm);
+  if (!end || end == start)
+    return NULL;
+  char buf[32];
+  if (strftime(buf, sizeof(buf), "%e %b %Y", &tm) == 0)
+    return NULL;
+  char *s = buf;
+  while (*s == ' ')
+    s++;
+  return strdup(s);
+}
+
+typedef struct {
+  char host[256];
+  int total;
+  int shown;
+  int last;
+} HostStat;
+
+static int host_stat_index(HostStat *stats, int n, const char *host) {
+  for (int i = 0; i < n; i++) {
+    if (strcmp(stats[i].host, host) == 0)
+      return i;
+  }
+  return -1;
+}
+
+/* keep at most MAX_RESULTS_PER_HOST results per host. hidden results count
+ * against the last shown one, which gets a "more from host" link */
+static void cluster_merged_results(MergedResult *merged, int n, int *keep,
+                                   int *extra) {
+  HostStat *stats = calloc((size_t)n, sizeof(HostStat));
+  if (!stats) {
+    for (int i = 0; i < n; i++)
+      keep[i] = 1;
+    return;
+  }
+  int nstats = 0;
+  for (int i = 0; i < n; i++) {
+    const char *host = merged[i].host ? merged[i].host : "";
+    if (!host[0])
+      continue;
+    int s = host_stat_index(stats, nstats, host);
+    if (s < 0 && nstats < n) {
+      s = nstats++;
+      snprintf(stats[s].host, sizeof(stats[s].host), "%s", host);
+    }
+    if (s >= 0)
+      stats[s].total++;
+  }
+  for (int i = 0; i < n; i++) {
+    const char *host = merged[i].host ? merged[i].host : "";
+    if (!host[0]) {
+      keep[i] = 1;
+      continue;
+    }
+    int s = host_stat_index(stats, nstats, host);
+    if (s < 0 || stats[s].shown < MAX_RESULTS_PER_HOST) {
+      keep[i] = 1;
+      if (s >= 0) {
+        stats[s].shown++;
+        stats[s].last = i;
+      }
+    }
+  }
+  for (int s = 0; s < nstats; s++) {
+    int hidden = stats[s].total - stats[s].shown;
+    if (hidden > 0)
+      extra[stats[s].last] = hidden;
+  }
+  free(stats);
+}
+
+/* /search?q=site:host+query keeps the original terms under the site scope */
+static char *build_more_from_href(const char *host, const char *query,
+                                  const char *engine_id, const char *lens) {
+  if (!host || !host[0])
+    return NULL;
+  size_t qn = strlen(host) + strlen(query ? query : "") + 8;
+  char *q = malloc(qn);
+  if (!q)
+    return NULL;
+  snprintf(q, qn, "site:%s %s", host, query ? query : "");
+  char *enc = curl_easy_escape(NULL, q, 0);
+  free(q);
+  if (!enc)
+    return NULL;
+  char *href = build_search_href(enc, engine_id, lens, 1);
+  curl_free(enc);
   return href;
 }
 
@@ -648,6 +1119,9 @@ int results_handler(UrlParams *params) {
   TodayItems today = {0};
   char *raw_query = "";
   const char *selected_engine_id = "all";
+  const char *selected_lens = "";
+  const char *time_filter = "";
+  int verbatim = 0;
   int page = 1;
   int btnI = 0;
 
@@ -712,6 +1186,13 @@ int results_handler(UrlParams *params) {
           page = parsed;
       } else if (strcmp(params->params[i].key, "engine") == 0) {
         selected_engine_id = params->params[i].value;
+      } else if (strcmp(params->params[i].key, "lens") == 0) {
+        if (lens_is_valid(params->params[i].value))
+          selected_lens = params->params[i].value;
+      } else if (strcmp(params->params[i].key, "t") == 0) {
+        time_filter = params->params[i].value;
+      } else if (strcmp(params->params[i].key, "v") == 0) {
+        verbatim = atoi(params->params[i].value) != 0;
       } else if (strcmp(params->params[i].key, "btnI") == 0) {
         btnI = atoi(params->params[i].value);
       }
@@ -719,6 +1200,34 @@ int results_handler(UrlParams *params) {
   }
 
   context_set(&ctx, "query", raw_query);
+
+  /* lyra-only query decorations - other engines see the raw text */
+  char *lyra_query = NULL;
+  {
+    char dbuf[16];
+    dbuf[0] = '\0';
+    if (time_filter[0]) {
+      long days = !strcmp(time_filter, "day") ? 1
+                  : !strcmp(time_filter, "week") ? 7
+                  : !strcmp(time_filter, "month") ? 30 : 365;
+      time_t cut = time(NULL) - days * 86400;
+      struct tm tmv;
+      gmtime_r(&cut, &tmv);
+      strftime(dbuf, sizeof(dbuf), "%Y-%m-%d", &tmv);
+    }
+    size_t n = strlen(raw_query) + 40;
+    lyra_query = malloc(n);
+    if (lyra_query) {
+      if (verbatim && time_filter[0])
+        snprintf(lyra_query, n, "\"%s\" after:%s", raw_query, dbuf);
+      else if (verbatim)
+        snprintf(lyra_query, n, "\"%s\"", raw_query);
+      else if (time_filter[0])
+        snprintf(lyra_query, n, "%s after:%s", raw_query, dbuf);
+      else
+        snprintf(lyra_query, n, "%s", raw_query);
+    }
+  }
   char page_str[16];
   snprintf(page_str, sizeof(page_str), "%d", page);
   context_set(&ctx, "page", page_str);
@@ -730,6 +1239,7 @@ int results_handler(UrlParams *params) {
 
   if (!raw_query || strlen(raw_query) == 0) {
     today_items_free(&today);
+    free(lyra_query);
     free_context(&ctx);
     send_redirect("/");
     return 0;
@@ -740,6 +1250,7 @@ int results_handler(UrlParams *params) {
     send_redirect(bang_redirect);
     free(bang_redirect);
     today_items_free(&today);
+    free(lyra_query);
     free_context(&ctx);
     return 0;
   }
@@ -748,8 +1259,16 @@ int results_handler(UrlParams *params) {
   if (!selected_engine)
     selected_engine_id = "all";
 
+  if (strcmp(time_filter, "day") && strcmp(time_filter, "week") &&
+      strcmp(time_filter, "month") && strcmp(time_filter, "year"))
+    time_filter = "";
+
   context_set(&ctx, "selected_engine", selected_engine_id);
-  char *search_href = build_search_href(raw_query, selected_engine_id, 1);
+  context_set(&ctx, "selected_lens", selected_lens);
+  context_set(&ctx, "time_filter", time_filter);
+  context_set(&ctx, "verbatim", verbatim ? "1" : "");
+  char *search_href = build_search_href(raw_query, selected_engine_id,
+                                        selected_lens, 1);
   context_set(&ctx, "search_href", search_href ? search_href : "/search");
   free(search_href);
 
@@ -764,7 +1283,8 @@ int results_handler(UrlParams *params) {
     if (eng && eng->enabled &&
         (!has_user_pref ||
          user_engines_contains(eng->id, user_engines, user_engine_count)) &&
-        (!selected_engine || eng == selected_engine)) {
+        (!selected_engine || eng == selected_engine) &&
+        (page <= 1 || eng->page_param[0] != '\0')) {
       enabled_engine_count++;
     }
   }
@@ -810,6 +1330,7 @@ int results_handler(UrlParams *params) {
       }
       free(request_cache_key);
       today_items_free(&today);
+    free(lyra_query);
     free_context(&ctx);
       if (user_engines) {
         for (int i = 0; i < user_engine_count; i++)
@@ -839,6 +1360,47 @@ int results_handler(UrlParams *params) {
     infobox_spawned[i] = 0;
   }
 
+  /* rendered-page cache: repeat queries skip scrape, merge, and render.
+     the key covers everything that changes output - query, page, engine
+     filter, lens, locale, engine prefs, domain prefs, slop mode. must run
+     before infobox threads spawn so an early return cannot free the stack
+     frame they write into */
+  char *page_key = NULL;
+  {
+    char *lang = get_locale(NULL);
+    char *eng_c = get_cookie("engines");
+    char *dpref_c = get_cookie("dprefs");
+    char scope[4096];
+    snprintf(scope, sizeof(scope), "pg|%s|%s|%s|%s|%s|%d",
+             selected_engine_id, selected_lens, lang ? lang : "",
+             eng_c ? eng_c : "", dpref_c ? dpref_c : "", slop_cookie_mode());
+    page_key = cache_compute_key(raw_query, page, scope);
+    free(lang);
+    free(eng_c);
+    free(dpref_c);
+  }
+  {
+    char *cached_page = NULL;
+    size_t cached_len = 0;
+    if (page_key &&
+        cache_get(page_key, get_cache_ttl_search(), &cached_page,
+                  &cached_len) == 0 &&
+        cached_page) {
+      send_response(cached_page);
+      free(cached_page);
+      free(page_key);
+      free(lyra_query);
+      free_context(&ctx);
+      today_items_free(&today);
+      if (user_engines) {
+        for (int i = 0; i < user_engine_count; i++)
+          free(user_engines[i]);
+        free(user_engines);
+      }
+      return 0;
+    }
+  }
+
   if (page == 1) {
     for (int i = 0; i < HANDLER_COUNT; i++) {
       if (handlers[i].check_fn && !handlers[i].check_fn(raw_query))
@@ -858,9 +1420,59 @@ int results_handler(UrlParams *params) {
     if (eng && eng->enabled &&
         (!has_user_pref ||
          user_engines_contains(eng->id, user_engines, user_engine_count)) &&
-        (!selected_engine || eng == selected_engine)) {
+        (!selected_engine || eng == selected_engine) &&
+        (page <= 1 || eng->page_param[0] != '\0')) {
       all_results[engine_idx] = NULL;
       jobs[engine_idx].engine = eng;
+      jobs[engine_idx].query = (!strcmp(eng->id, "lyra") && lyra_query) ? lyra_query : raw_query;
+      jobs[engine_idx].out_results = &all_results[engine_idx];
+      jobs[engine_idx].max_results = MAX_RESULTS_PER_ENGINE;
+      jobs[engine_idx].results_count = 0;
+      jobs[engine_idx].page = page;
+      jobs[engine_idx].handle = NULL;
+      jobs[engine_idx].response.memory = NULL;
+      jobs[engine_idx].response.size = 0;
+      jobs[engine_idx].response.capacity = 0;
+      jobs[engine_idx].http_status = 0;
+      jobs[engine_idx].status = SCRAPE_STATUS_PENDING;
+      jobs[engine_idx].cache_key = NULL;
+      jobs[engine_idx].cache_lock_held = 0;
+      jobs[engine_idx].user_selected = selected_engine != NULL;
+      jobs[engine_idx].did_you_mean = NULL;
+      engine_idx++;
+    }
+  }
+
+  /* a lens means the user wants that vertical - fire its engines even when
+     the engine filter is something else, so lens=forums actually shows
+     forum threads rather than demoted general hits */
+  if (selected_lens[0] != '\0') {
+    int lens_n = 0;
+    const char *const *lens_engs = lens_engines(selected_lens, &lens_n);
+    for (int li = 0; li < lens_n && engine_idx < MAX_ENGINE_JOBS; li++) {
+      const SearchEngine *leng = NULL;
+      for (int i = 0; i < engines_total(); i++) {
+        const SearchEngine *e = engine_at(i);
+        if (e && e->enabled && !strcmp(e->id, lens_engs[li])) {
+          leng = e;
+          break;
+        }
+      }
+      if (!leng)
+        continue;
+      if (has_user_pref &&
+          !user_engines_contains(leng->id, user_engines, user_engine_count))
+        continue;
+      if (page > 1 && leng->page_param[0] == '\0')
+        continue;
+      int already = 0;
+      for (int j = 0; j < engine_idx; j++)
+        if (jobs[j].engine == leng)
+          already = 1;
+      if (already)
+        continue;
+      all_results[engine_idx] = NULL;
+      jobs[engine_idx].engine = leng;
       jobs[engine_idx].query = raw_query;
       jobs[engine_idx].out_results = &all_results[engine_idx];
       jobs[engine_idx].max_results = MAX_RESULTS_PER_ENGINE;
@@ -874,10 +1486,24 @@ int results_handler(UrlParams *params) {
       jobs[engine_idx].status = SCRAPE_STATUS_PENDING;
       jobs[engine_idx].cache_key = NULL;
       jobs[engine_idx].cache_lock_held = 0;
+      jobs[engine_idx].user_selected = selected_engine != NULL;
+      jobs[engine_idx].did_you_mean = NULL;
       engine_idx++;
     }
   }
 
+  /* category-grouped display order so the filter row reads sensibly */
+  static const char *engine_display_order[] = {
+      "lyra",
+      "brave",     "ddg",        "yahoo",     "startpage", "qwant",
+      "mojeek",    "mwmbl",      "wiby",      "yacy",
+      "wikipedia", "wiktionary", "wikibooks", "wikiquote",
+      "stackoverflow", "hn",     "reddit",    "lobsters",  "lemmy",
+      "archwiki",  "debianwiki", "nixos",     "gentoo",    "mediawiki",
+      "arxiv",     "s2",         "openalex",  "europepmc",
+      "openlibrary", "gbooks",   "itunes",    "themealdb",
+      "osm",       "peertube",
+  };
   int filter_engine_count = 0;
   for (int i = 0; i < engines_total(); i++) {
     const SearchEngine *eng = engine_at(i);
@@ -890,7 +1516,8 @@ int results_handler(UrlParams *params) {
   if (filter_engine_count > 1) {
     StringMatrix filter_matrix;
     string_matrix_init(&filter_matrix);
-    char *all_href = build_search_href(raw_query, "all", 1);
+    char *all_href =
+        build_search_href(raw_query, "all", selected_lens, 1);
 
     add_engine_filter(
         all_href, "All",
@@ -898,31 +1525,182 @@ int results_handler(UrlParams *params) {
         &filter_matrix);
     free(all_href);
 
-    for (int i = 0; i < engines_total(); i++) {
-      const SearchEngine *eng = engine_at(i);
-      char *icon;
+    /* walk the display-order list first, then any unlisted engines */
+    for (size_t oi = 0; oi < sizeof(engine_display_order) /
+                                sizeof(engine_display_order[0]);
+         oi++) {
+      const SearchEngine *eng = NULL;
+      for (int i = 0; i < engines_total(); i++) {
+        const SearchEngine *e = engine_at(i);
+        if (e && !strcmp(e->id, engine_display_order[oi])) {
+          eng = e;
+          break;
+        }
+      }
       if (!eng || !eng->enabled ||
           (has_user_pref && !user_engines_contains(
                                 eng->id, user_engines, user_engine_count)))
         continue;
-
-      char *filter_href = build_search_href(raw_query, eng->id, 1);
+      char *filter_href =
+          build_search_href(raw_query, eng->id, selected_lens, 1);
       const char *filter_class =
           (selected_engine && eng == selected_engine) ? "engine-filter active"
                                                        : "engine-filter";
-      icon = favicon_url_for_engine_id(eng->id);
+      char *icon = favicon_url_for_engine_id(eng->id);
+      add_engine_filter(filter_href, eng->name, filter_class,
+                        icon ? icon : "", &filter_matrix);
+      free(icon);
+      free(filter_href);
+    }
+    for (int i = 0; i < engines_total(); i++) {
+      const SearchEngine *eng = engine_at(i);
+      if (!eng || !eng->enabled ||
+          (has_user_pref && !user_engines_contains(
+                                eng->id, user_engines, user_engine_count)))
+        continue;
+      int listed = 0;
+      for (size_t oi = 0; oi < sizeof(engine_display_order) /
+                                  sizeof(engine_display_order[0]);
+           oi++)
+        if (!strcmp(eng->id, engine_display_order[oi]))
+          listed = 1;
+      if (listed)
+        continue;
+      char *filter_href =
+          build_search_href(raw_query, eng->id, selected_lens, 1);
+      const char *filter_class =
+          (selected_engine && eng == selected_engine) ? "engine-filter active"
+                                                       : "engine-filter";
+      char *icon = favicon_url_for_engine_id(eng->id);
       add_engine_filter(filter_href, eng->name, filter_class,
                         icon ? icon : "", &filter_matrix);
       free(icon);
       free(filter_href);
     }
 
-    if (filter_matrix.count > 0) {
+    /* first N stay as chips, the rest go into the overflow dropdown */
+    const int visible = 10;
+    int vis_n = filter_matrix.count < visible ? filter_matrix.count : visible;
+    if (vis_n > 0) {
       context_set_array_of_arrays(&ctx, "engine_filters", filter_matrix.rows,
-                                  filter_matrix.count,
+                                  vis_n, filter_matrix.field_counts);
+    }
+    if (filter_matrix.count > vis_n) {
+      context_set_array_of_arrays(&ctx, "engine_filters_more",
+                                  filter_matrix.rows + vis_n,
+                                  filter_matrix.count - vis_n,
                                   filter_matrix.field_counts);
     }
     string_matrix_free(&filter_matrix);
+  }
+
+  {
+    static const char *lenses[] = {"",        "forums",  "docs",   "wiki",
+                                   "papers",   "recipes", "books",  "podcasts",
+                                   "shopping", "news",    "maps",   "videos",
+                                   "custom"};
+    int has_custom = 0;
+    {
+      char *u = get_cookie("ulens");
+      has_custom = (u && u[0]);
+      free(u);
+    }
+    StringMatrix lens_matrix;
+    string_matrix_init(&lens_matrix);
+    size_t lens_n = sizeof(lenses) / sizeof(lenses[0]);
+    if (!has_custom)
+      lens_n--; /* drop the custom chip when no domains are configured */
+    for (size_t li = 0; li < lens_n; li++) {
+      const char *id = lenses[li];
+      char *lens_href =
+          build_search_href_tv(raw_query, selected_engine_id, id, 1,
+                               time_filter, verbatim);
+      const char *label = "All";
+      if (!strcmp(id, "forums"))
+        label = "Forums";
+      else if (!strcmp(id, "docs"))
+        label = "Docs";
+      else if (!strcmp(id, "wiki"))
+        label = "Wikis";
+      else if (!strcmp(id, "papers"))
+        label = "Papers";
+      else if (!strcmp(id, "recipes"))
+        label = "Recipes";
+      else if (!strcmp(id, "books"))
+        label = "Books";
+      else if (!strcmp(id, "podcasts"))
+        label = "Podcasts";
+      else if (!strcmp(id, "shopping"))
+        label = "Shopping";
+      else if (!strcmp(id, "news"))
+        label = "News";
+      else if (!strcmp(id, "maps"))
+        label = "Maps";
+      else if (!strcmp(id, "videos"))
+        label = "Videos";
+      else if (!strcmp(id, "custom"))
+        label = "Custom";
+      const char *icon = "";
+      if (!strcmp(id, ""))
+        icon = "ui-icon-layout-grid";
+      else if (!strcmp(id, "forums"))
+        icon = "ui-icon-message-square";
+      else if (!strcmp(id, "docs"))
+        icon = "ui-icon-file-text";
+      else if (!strcmp(id, "wiki"))
+        icon = "ui-icon-book-open";
+      else if (!strcmp(id, "papers"))
+        icon = "ui-icon-graduation-cap";
+      else if (!strcmp(id, "recipes"))
+        icon = "ui-icon-utensils";
+      else if (!strcmp(id, "books"))
+        icon = "ui-icon-library";
+      else if (!strcmp(id, "podcasts"))
+        icon = "ui-icon-audio-lines";
+      else if (!strcmp(id, "shopping"))
+        icon = "ui-icon-shopping-bag";
+      else if (!strcmp(id, "news"))
+        icon = "ui-icon-newspaper";
+      else if (!strcmp(id, "maps"))
+        icon = "ui-icon-map-pin";
+      else if (!strcmp(id, "videos"))
+        icon = "ui-icon-play";
+      else if (!strcmp(id, "custom"))
+        icon = "ui-icon-funnel";
+      const char *cls = !strcmp(id, selected_lens) ? "engine-filter active"
+                                                   : "engine-filter";
+      add_engine_filter(lens_href, label, cls, icon, &lens_matrix);
+      free(lens_href);
+    }
+    if (lens_matrix.count > 0) {
+      context_set_array_of_arrays(&ctx, "lens_filters", lens_matrix.rows,
+                                  lens_matrix.count,
+                                  lens_matrix.field_counts);
+    }
+    string_matrix_free(&lens_matrix);
+  }
+
+  /* time filter chips - carried by every link via build_search_href_tv */
+  {
+    static const char *const time_vals[] = {"", "day", "week", "month", "year"};
+    static const char *const time_labels[] = {"Any time", "Past 24h",
+                                              "Past week", "Past month",
+                                              "Past year"};
+    StringMatrix time_matrix;
+    string_matrix_init(&time_matrix);
+    for (int ti = 0; ti < 5; ti++) {
+      char *th = build_search_href_tv(raw_query, selected_engine_id,
+                                      selected_lens, 1, time_vals[ti],
+                                      verbatim);
+      const char *cls = !strcmp(time_vals[ti], time_filter)
+                            ? "engine-filter active"
+                            : "engine-filter";
+      add_engine_filter(th, time_labels[ti], cls, "", &time_matrix);
+      free(th);
+    }
+    context_set_array_of_arrays(&ctx, "time_filters", time_matrix.rows,
+                                time_matrix.count, time_matrix.field_counts);
+    string_matrix_free(&time_matrix);
   }
 
   if (engine_idx > 0) {
@@ -958,6 +1736,7 @@ int results_handler(UrlParams *params) {
           }
         }
         today_items_free(&today);
+    free(lyra_query);
     free_context(&ctx);
         if (redirect_url) {
           send_redirect(redirect_url);
@@ -975,6 +1754,7 @@ int results_handler(UrlParams *params) {
       }
     }
     today_items_free(&today);
+    free(lyra_query);
     free_context(&ctx);
     char *page_html =
         render_error_page(no_results_msg, "", search_href ? "/search" : "/");
@@ -1068,19 +1848,52 @@ int results_handler(UrlParams *params) {
   if (total_results > 0) {
     MergedResult *merged = NULL;
     int unique_count =
-        merge_rank_results(jobs, all_results, engine_idx, raw_query, &merged);
+        merge_rank_results(jobs, all_results, engine_idx, raw_query,
+                           selected_lens, &merged);
     double *slop_scores = NULL;
     int slop_mode = slop_cookie_mode();
     if (unique_count > 0)
       unique_count =
           apply_slop_to_merged(merged, unique_count, slop_mode, &slop_scores);
+    int *keep = NULL;
+    int *extra = NULL;
+    int rendered_count = unique_count;
+    {
+      char rc[16];
+      snprintf(rc, sizeof(rc), "%d", rendered_count);
+      context_set(&ctx, "result_count", rc);
+    }
+    if (unique_count > 0) {
+      keep = calloc((size_t)unique_count, sizeof(int));
+      extra = calloc((size_t)unique_count, sizeof(int));
+      if (keep && extra) {
+        if (strcasestr(raw_query, "site:")) {
+          for (int i = 0; i < unique_count; i++)
+            keep[i] = 1;
+        } else {
+          cluster_merged_results(merged, unique_count, keep, extra);
+        }
+        rendered_count = 0;
+        for (int i = 0; i < unique_count; i++)
+          rendered_count += keep[i];
+      } else {
+        free(keep);
+        free(extra);
+        keep = NULL;
+        extra = NULL;
+      }
+    }
     char ***results_matrix = NULL;
     int *results_inner_counts = NULL;
-    if (unique_count > 0) {
-      results_matrix = (char ***)malloc(sizeof(char **) * unique_count);
-      results_inner_counts = (int *)malloc(sizeof(int) * unique_count);
+    if (rendered_count > 0) {
+      results_matrix = (char ***)malloc(sizeof(char **) * rendered_count);
+      results_inner_counts = (int *)malloc(sizeof(int) * rendered_count);
     }
-    if (unique_count < 0 || (unique_count > 0 && (!results_matrix || !results_inner_counts))) {
+    if (unique_count < 0 ||
+        (rendered_count > 0 &&
+         (!results_matrix || !results_inner_counts))) {
+      free(keep);
+      free(extra);
       free_merged_results(merged, unique_count < 0 ? 0 : unique_count);
       free(slop_scores);
       if (results_matrix)
@@ -1089,6 +1902,8 @@ int results_handler(UrlParams *params) {
         free(results_inner_counts);
       char *html = render_template("results.html", &ctx);
       if (html) {
+        if (page_key)
+          cache_set(page_key, html, strlen(html));
         send_response(html);
         free(html);
       }
@@ -1099,6 +1914,7 @@ int results_handler(UrlParams *params) {
         }
       }
       today_items_free(&today);
+    free(lyra_query);
     free_context(&ctx);
       if (user_engines) {
         for (int i = 0; i < user_engine_count; i++)
@@ -1108,15 +1924,20 @@ int results_handler(UrlParams *params) {
       return 0;
     }
 
+    int w = 0;
     for (int i = 0; i < unique_count; i++) {
+      if (keep && !keep[i])
+        continue;
       char *display_url = merged[i].url;
 
-      results_matrix[i] =
+      results_matrix[w] =
           (char **)malloc(sizeof(char *) * RESULT_FIELD_COUNT);
-      if (!results_matrix[i]) {
+      if (!results_matrix[w]) {
+        free(keep);
+        free(extra);
         free_merged_results(merged, unique_count);
         free(slop_scores);
-        for (int k = 0; k < i; k++) {
+        for (int k = 0; k < w; k++) {
           for (int f = 0; f < RESULT_FIELD_COUNT; f++)
             free(results_matrix[k][f]);
           free(results_matrix[k]);
@@ -1135,6 +1956,7 @@ int results_handler(UrlParams *params) {
           free(html);
         }
         today_items_free(&today);
+    free(lyra_query);
     free_context(&ctx);
         if (user_engines) {
           for (int t = 0; t < user_engine_count; t++)
@@ -1144,49 +1966,88 @@ int results_handler(UrlParams *params) {
         return 0;
       }
       char *pretty_url = pretty_display_url(display_url);
-      char *base_url = get_base_url(display_url);
 
-      results_matrix[i][0] = strdup(display_url ? display_url : "");
-      results_matrix[i][1] = strdup(pretty_url ? pretty_url : "");
-      results_matrix[i][2] =
+      results_matrix[w][0] = strdup(display_url ? display_url : "");
+      results_matrix[w][1] = strdup(pretty_url ? pretty_url : "");
+      results_matrix[w][2] =
           merged[i].title ? strdup(merged[i].title) : strdup(untitled_msg);
-      results_matrix[i][3] =
+      results_matrix[w][3] =
           merged[i].snippet ? strdup(merged[i].snippet) : strdup("");
-      results_matrix[i][4] = favicon_proxy_url_for_page(display_url);
-      if (!results_matrix[i][4])
-        results_matrix[i][4] = strdup("");
-      results_matrix[i][5] = engine_stack_html(merged[i].engine_ids);
+      results_matrix[w][11] =
+          highlight_terms(merged[i].snippet, raw_query);
+      results_matrix[w][4] = favicon_proxy_url_for_page(display_url);
+      if (!results_matrix[w][4])
+        results_matrix[w][4] = strdup("");
+      results_matrix[w][5] = engine_stack_html(merged[i].engine_ids);
       if (slop_mode == SLOP_SCORE && slop_scores && slop_scores[i] >= 0.35) {
         char badge[64];
         snprintf(badge, sizeof(badge), "%s %d%%", slop_badge_msg,
                  (int)(slop_scores[i] * 100.0 + 0.5));
-        results_matrix[i][6] = strdup(badge);
+        results_matrix[w][6] = strdup(badge);
       } else {
-        results_matrix[i][6] = strdup("");
+        results_matrix[w][6] = strdup("");
+      }
+      results_matrix[w][7] =
+          merged[i].host ? strdup(merged[i].host) : strdup("");
+      char *date_str = format_result_date(merged[i].date);
+      results_matrix[w][8] = date_str ? date_str : strdup("");
+      if (extra && extra[i] > 0) {
+        char *more_href =
+            build_more_from_href(merged[i].host, raw_query,
+                                 selected_engine_id, selected_lens);
+        results_matrix[w][9] = more_href ? more_href : strdup("");
+        char cnt[16];
+        snprintf(cnt, sizeof(cnt), "%d", extra[i]);
+        results_matrix[w][10] = strdup(cnt);
+      } else {
+        results_matrix[w][9] = strdup("");
+        results_matrix[w][10] = strdup("");
       }
 
-      results_inner_counts[i] = RESULT_FIELD_COUNT;
+      results_inner_counts[w] = RESULT_FIELD_COUNT;
+      w++;
 
       free(pretty_url);
-      free(base_url);
     }
 
+    free(keep);
+    free(extra);
     free_merged_results(merged, unique_count);
     free(slop_scores);
     free_search_jobs(jobs, all_results, engine_idx);
 
-    if (unique_count > 0)
-      context_set_array_of_arrays(&ctx, "results", results_matrix, unique_count,
-                                  results_inner_counts);
+    if (rendered_count > 0) {
+      context_set_array_of_arrays(&ctx, "results", results_matrix,
+                                  rendered_count, results_inner_counts);
+      /* thin result set - surface the index spell suggestion above the
+         results rather than only on a fully empty page */
+      if (rendered_count < 3) {
+        context_set(&ctx, "did_you_mean_msg", did_you_mean_msg);
+        for (int i = 0; i < engine_idx; i++) {
+          if (jobs[i].did_you_mean && *jobs[i].did_you_mean) {
+            context_set(&ctx, "thin_suggestion", jobs[i].did_you_mean);
+            char sug_href[512];
+            snprintf(sug_href, sizeof(sug_href), "/search?q=%s",
+                     jobs[i].did_you_mean);
+            context_set(&ctx, "thin_suggestion_href", sug_href);
+            break;
+          }
+        }
+      }
+    } else {
+      context_set(&ctx, "no_results", "1");
+      context_set(&ctx, "no_results_msg", no_results_msg);
+    }
 
-    if (page > 1 || unique_count >= 10) {
+    if (page > 1 || rendered_count >= 10) {
     StringMatrix pager_matrix;
     string_matrix_init(&pager_matrix);
     int pager_start = page <= 3 ? 1 : page - 2;
     int pager_end = pager_start + PAGER_WINDOW_SIZE - 1;
 
     if (page > 3) {
-      char *first_href = build_search_href(raw_query, selected_engine_id, 1);
+      char *first_href = build_search_href_tv(raw_query, selected_engine_id,
+                                     selected_lens, 1, time_filter, verbatim);
       add_link_to_collection(first_href, first_msg, "pagination-btn",
                              &pager_matrix);
       free(first_href);
@@ -1194,7 +2055,8 @@ int results_handler(UrlParams *params) {
 
     if (page > 1) {
       char *prev_href =
-          build_search_href(raw_query, selected_engine_id, page - 1);
+          build_search_href_tv(raw_query, selected_engine_id,
+                                     selected_lens, page - 1, time_filter, verbatim);
       add_link_to_collection(prev_href, prev_msg, "pagination-btn prev",
                              &pager_matrix);
       free(prev_href);
@@ -1203,7 +2065,8 @@ int results_handler(UrlParams *params) {
     for (int i = pager_start; i <= pager_end; i++) {
       char label[16];
       snprintf(label, sizeof(label), "%d", i);
-      char *page_href = build_search_href(raw_query, selected_engine_id, i);
+      char *page_href = build_search_href_tv(raw_query, selected_engine_id,
+                                   selected_lens, i, time_filter, verbatim);
       add_link_to_collection(
           page_href, label,
           i == page ? "pagination-btn pagination-current" : "pagination-btn",
@@ -1211,7 +2074,8 @@ int results_handler(UrlParams *params) {
       free(page_href);
     }
 
-    char *next_href = build_search_href(raw_query, selected_engine_id, page + 1);
+    char *next_href = build_search_href(raw_query, selected_engine_id,
+                                     selected_lens, page + 1);
     add_link_to_collection(next_href, next_msg, "pagination-btn next",
                              &pager_matrix);
     free(next_href);
@@ -1226,6 +2090,8 @@ int results_handler(UrlParams *params) {
 
     char *html = render_template("results.html", &ctx);
     if (html) {
+      if (page_key)
+        cache_set(page_key, html, strlen(html));
       send_response(html);
       free(html);
     } else {
@@ -1239,13 +2105,24 @@ int results_handler(UrlParams *params) {
       }
     }
 
-    free_string_matrix(results_matrix, results_inner_counts, unique_count);
+    free_string_matrix(results_matrix, results_inner_counts,
+                               rendered_count);
   } else {
     context_set(&ctx, "no_results", "1");
     context_set(&ctx, "no_results_msg", no_results_msg);
     context_set(&ctx, "did_you_mean_msg", did_you_mean_msg);
 
-    char *suggestion = fetch_did_you_mean(raw_query);
+    /* prefer the index's own correction - it knows which terms actually
+       have documents; fall back to the upstream suggestion */
+    char *suggestion = NULL;
+    for (int i = 0; i < engine_idx; i++) {
+      if (jobs[i].did_you_mean && *jobs[i].did_you_mean) {
+        suggestion = strdup(jobs[i].did_you_mean);
+        break;
+      }
+    }
+    if (!suggestion)
+      suggestion = fetch_did_you_mean(raw_query);
     if (suggestion) {
       context_set(&ctx, "suggestion", suggestion);
       char sug_href[512];
@@ -1256,6 +2133,8 @@ int results_handler(UrlParams *params) {
 
     char *html = render_template("results.html", &ctx);
     if (html) {
+      if (page_key)
+        cache_set(page_key, html, strlen(html));
       send_response(html);
       free(html);
     } else {
@@ -1278,6 +2157,7 @@ int results_handler(UrlParams *params) {
     }
   }
   today_items_free(&today);
+  free(lyra_query);
   free_context(&ctx);
   if (user_engines) {
     for (int i = 0; i < user_engine_count; i++)
@@ -1351,7 +2231,7 @@ static char *fetch_did_you_mean(const char *query) {
   if (!resp.memory)
     return NULL;
 
-  /* shape: ["query",["s1","s2",...]] — pull first element of the array */
+  /* shape: ["query",["s1","s2",...]] pull first element of the array */
   const char *p = strstr(resp.memory, "[[");
   char *best = NULL;
   if (p) {
@@ -1386,6 +2266,7 @@ static void free_search_jobs(ScrapeJob *jobs, SearchResult **all_results,
       free(all_results[i][j].url);
       free(all_results[i][j].title);
       free(all_results[i][j].snippet);
+      free(all_results[i][j].date);
     }
     free(all_results[i]);
   }
@@ -1393,7 +2274,8 @@ static void free_search_jobs(ScrapeJob *jobs, SearchResult **all_results,
 
 static int setup_search_jobs(const char *raw_query, const char *selected_engine_id,
                              int page, ScrapeJob *jobs,
-                             SearchResult **all_results) {
+                             SearchResult **all_results,
+                             const char *lyra_query) {
   const SearchEngine *selected_engine = find_enabled_engine(selected_engine_id);
   int engine_idx = 0;
 
@@ -1407,10 +2289,11 @@ static int setup_search_jobs(const char *raw_query, const char *selected_engine_
     if (eng && eng->enabled &&
         (!has_user_pref ||
          user_engines_contains(eng->id, user_engines, user_engine_count)) &&
-        (!selected_engine || eng == selected_engine)) {
+        (!selected_engine || eng == selected_engine) &&
+        (page <= 1 || eng->page_param[0] != '\0')) {
       all_results[engine_idx] = NULL;
       jobs[engine_idx].engine = eng;
-      jobs[engine_idx].query = (char *)raw_query;
+      jobs[engine_idx].query = (!strcmp(eng->id, "lyra") && lyra_query) ? lyra_query : (char *)raw_query;
       jobs[engine_idx].out_results = &all_results[engine_idx];
       jobs[engine_idx].max_results = MAX_RESULTS_PER_ENGINE;
       jobs[engine_idx].results_count = 0;
@@ -1423,6 +2306,8 @@ static int setup_search_jobs(const char *raw_query, const char *selected_engine_
       jobs[engine_idx].status = SCRAPE_STATUS_PENDING;
       jobs[engine_idx].cache_key = NULL;
       jobs[engine_idx].cache_lock_held = 0;
+      jobs[engine_idx].user_selected = selected_engine != NULL;
+      jobs[engine_idx].did_you_mean = NULL;
       engine_idx++;
     }
   }
@@ -1487,7 +2372,7 @@ int json_search_handler(UrlParams *params) {
   ScrapeJob jobs[MAX_ENGINE_JOBS];
   SearchResult *all_results[MAX_ENGINE_JOBS];
   int engine_idx =
-      setup_search_jobs(raw_query, selected_engine_id, page, jobs, all_results);
+      setup_search_jobs(raw_query, selected_engine_id, page, jobs, all_results, NULL);
 
   char *buf = NULL;
   size_t blen = 0;
@@ -1505,7 +2390,8 @@ int json_search_handler(UrlParams *params) {
 
   MergedResult *merged = NULL;
   int merged_count =
-      merge_rank_results(jobs, all_results, engine_idx, raw_query, &merged);
+      merge_rank_results(jobs, all_results, engine_idx, raw_query, NULL,
+                         &merged);
 
   int first = 1;
   enum { JSON_MAX_ITEMS = 50 };
@@ -1577,7 +2463,7 @@ int rss_handler(UrlParams *params) {
   ScrapeJob jobs[MAX_ENGINE_JOBS];
   SearchResult *all_results[MAX_ENGINE_JOBS];
   int engine_idx =
-      setup_search_jobs(raw_query, selected_engine_id, page, jobs, all_results);
+      setup_search_jobs(raw_query, selected_engine_id, page, jobs, all_results, NULL);
 
   char *buf = NULL;
   size_t blen = 0;
@@ -1586,7 +2472,8 @@ int rss_handler(UrlParams *params) {
     return -1;
 
   char *q_esc = xml_escape_text(raw_query);
-  char *search_href = build_search_href(raw_query, selected_engine_id, page);
+  char *search_href =
+      build_search_href(raw_query, selected_engine_id, NULL, page);
   char channel_link[BUFFER_SIZE_LARGE];
   if (global_config.domain[0] != '\0' && search_href) {
     snprintf(channel_link, sizeof(channel_link), "%s%s", global_config.domain,
@@ -1608,7 +2495,8 @@ int rss_handler(UrlParams *params) {
 
   MergedResult *merged = NULL;
   int merged_count =
-      merge_rank_results(jobs, all_results, engine_idx, raw_query, &merged);
+      merge_rank_results(jobs, all_results, engine_idx, raw_query, NULL,
+                         &merged);
 
   enum { RSS_MAX_ITEMS = 20 };
   for (int i = 0; i < merged_count && i < RSS_MAX_ITEMS; i++) {

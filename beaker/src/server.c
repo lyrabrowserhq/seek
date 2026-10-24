@@ -389,6 +389,45 @@ void handle_client_connection(int new_socket) {
 
     current_keep_alive = request_allows_keep_alive(request_line);
 
+    /* merge a form-encoded body into the url params so POST /search works
+       like GET /search?q=, capped small since search forms are tiny */
+    if (strcmp(method, "POST") == 0 || strcmp(method, "PUT") == 0) {
+      char *clh = strcasestr(current_request_buffer, "Content-Length:");
+      long want = clh ? strtol(clh + 15, NULL, 10) : 0;
+      int body_consumed = want <= 0 ? 1 : 0;
+      if (want > 0 && want <= 64 * 1024) {
+        char *body = malloc((size_t)want + 1);
+        size_t got = 0;
+        if (body) {
+          if (pending) {
+            size_t take = pending < (size_t)want ? pending : (size_t)want;
+            memcpy(body, buffer, take);
+            got = take;
+            // bytes past the body are the start of a pipelined request
+            pending -= take;
+            if (pending)
+              memmove(buffer, buffer + take, pending);
+          }
+          while (got < (size_t)want) {
+            ssize_t r = recv(new_socket, body + got, (size_t)want - got, 0);
+            if (r <= 0)
+              break;
+            got += (size_t)r;
+          }
+          if (got == (size_t)want) {
+            body[want] = '\0';
+            beaker_parse_body_params(body, &request_params);
+            body_consumed = 1;
+          }
+          free(body);
+        }
+      }
+      // chunked bodies or anything left unread would desync the connection
+      if (!body_consumed ||
+          strcasestr(current_request_buffer, "Transfer-Encoding:"))
+        current_keep_alive = 0;
+    }
+
     bool handled = false;
 
     if (strncmp(requested_path, "/static/", strlen("/static/")) == 0) {

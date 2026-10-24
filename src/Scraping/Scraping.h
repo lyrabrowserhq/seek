@@ -9,10 +9,18 @@ typedef struct {
   char *url;
   char *title;
   char *snippet;
+  char *date;
 } SearchResult;
 
 typedef int (*ParserFunc)(const char *engine_name, xmlDocPtr doc,
                           SearchResult **out_results, int max_results);
+
+struct Hdoc;
+typedef struct Hdoc Hdoc;
+
+/* lexbor-based html parser - preferred over ParserFunc when set */
+typedef int (*HtmlParserFunc)(const char *engine_name, Hdoc *doc,
+                              SearchResult **out_results, int max_results);
 typedef int (*JsonParserFunc)(const char *engine_id, const char *json,
                               SearchResult **out_results, int max_results);
 
@@ -22,7 +30,7 @@ typedef int (*JsonParserFunc)(const char *engine_id, const char *json,
 #define ENGINE_HOST_MAX 128
 #define ENGINE_REFERER_MAX 256
 #define ENGINE_PAGE_PARAM_MAX 16
-#define MAX_BUILTIN_ENGINES 28
+#define MAX_BUILTIN_ENGINES 40
 #define MAX_EXTRA_ENGINES 16
 #define MAX_ENGINE_JOBS (MAX_BUILTIN_ENGINES + MAX_EXTRA_ENGINES)
 
@@ -37,6 +45,7 @@ typedef struct {
   int page_base;
   ParserFunc parser;
   JsonParserFunc json_parser;
+  HtmlParserFunc html_parser;
   int enabled;
   int is_xml;
   int is_json;
@@ -70,6 +79,10 @@ typedef struct {
   ScrapeStatus status;
   char *cache_key;
   int cache_lock_held;
+  int user_selected;
+  /* rss channel-level spell suggestion - engines can surface a corrected
+     query back to the caller */
+  char *did_you_mean;
 } ScrapeJob;
 
 extern SearchEngine ENGINE_REGISTRY[];

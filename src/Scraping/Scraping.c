@@ -4,8 +4,10 @@
 #include "../Utility/XmlHelper.h"
 #include "Config.h"
 #include <curl/curl.h>
+#include "Hdoc.h"
 #include <libxml/HTMLparser.h>
 #include <libxml/parser.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -122,26 +124,58 @@ static void classify_job_response(ScrapeJob *job, const char *response,
     return;
   }
 
-  xmlDocPtr doc;
-  if (job->engine->is_xml) {
-    doc = xmlReadMemory(response, response_size, NULL, NULL,
-                        XML_PARSE_RECOVER | XML_PARSE_NOERROR |
-                            XML_PARSE_NOWARNING);
+  if (!job->engine->is_xml && job->engine->html_parser) {
+    /* lexbor path - engines with a ported parser never touch libxml */
+    Hdoc *hdoc = hdoc_parse(response, (size_t)response_size);
+    if (!hdoc) {
+      job->status = SCRAPE_STATUS_FETCH_ERROR;
+      return;
+    }
+    job->results_count = job->engine->html_parser(
+        job->engine->name, hdoc, job->out_results, job->max_results);
+    hdoc_free(hdoc);
   } else {
-    doc = htmlReadMemory(response, response_size, NULL, NULL,
-                         HTML_PARSE_RECOVER | HTML_PARSE_NOERROR |
-                             HTML_PARSE_NOWARNING);
-  }
+    xmlDocPtr doc;
+    if (job->engine->is_xml) {
+      doc = xmlReadMemory(response, response_size, NULL, NULL,
+                          XML_PARSE_RECOVER | XML_PARSE_NOERROR |
+                              XML_PARSE_NOWARNING);
+    } else {
+      doc = htmlReadMemory(response, response_size, NULL, NULL,
+                           HTML_PARSE_RECOVER | HTML_PARSE_NOERROR |
+                               HTML_PARSE_NOWARNING);
+    }
 
-  if (!doc) {
-    job->status = SCRAPE_STATUS_FETCH_ERROR;
-    return;
-  }
+    if (!doc) {
+      job->status = SCRAPE_STATUS_FETCH_ERROR;
+      return;
+    }
 
-  job->results_count =
-      job->engine->parser(job->engine->name, doc, job->out_results,
-                          job->max_results);
-  xmlFreeDoc(doc);
+    job->results_count =
+        job->engine->parser(job->engine->name, doc, job->out_results,
+                            job->max_results);
+    /* channel-level spell suggestion - lyra emits <didyoumean> when the
+       result set is thin */
+    if (job->engine->is_xml) {
+      xmlXPathContextPtr xctx = xmlXPathNewContext(doc);
+      if (xctx) {
+        xmlXPathObjectPtr dym = xmlXPathEvalExpression(
+            (const xmlChar *)"//channel/didyoumean", xctx);
+        if (dym && dym->nodesetval && dym->nodesetval->nodeNr > 0) {
+          xmlChar *txt =
+              xmlNodeGetContent(dym->nodesetval->nodeTab[0]);
+          if (txt) {
+            free(job->did_you_mean);
+            job->did_you_mean = strdup((const char *)txt);
+            xmlFree(txt);
+          }
+        }
+        xmlXPathFreeObject(dym);
+        xmlXPathFreeContext(xctx);
+      }
+    }
+    xmlFreeDoc(doc);
+  }
 
   if (job->results_count > 0) {
     job->status = SCRAPE_STATUS_OK;
@@ -159,6 +193,75 @@ static void classify_job_response(ScrapeJob *job, const char *response,
   }
 
   job->status = SCRAPE_STATUS_EMPTY;
+}
+
+// engines that keep failing are skipped for a growing cooldown so a blocked
+// upstream does not stall every query. a cached hit or any later success
+// clears the streak
+#define ENGINE_HEALTH_MAX 96
+typedef struct {
+  char id[64];
+  int streak;
+  time_t skip_until;
+} EngineHealth;
+
+static EngineHealth engine_health[ENGINE_HEALTH_MAX];
+static pthread_mutex_t engine_health_mu = PTHREAD_MUTEX_INITIALIZER;
+
+static EngineHealth *engine_health_find(const char *id) {
+  int free_slot = -1;
+  for (int i = 0; i < ENGINE_HEALTH_MAX; i++) {
+    if (engine_health[i].id[0] == '\0' && free_slot < 0) {
+      free_slot = i;
+      continue;
+    }
+    if (strcmp(engine_health[i].id, id) == 0)
+      return &engine_health[i];
+  }
+  if (free_slot < 0)
+    return NULL;
+  EngineHealth *h = &engine_health[free_slot];
+  strncpy(h->id, id, sizeof(h->id) - 1);
+  h->id[sizeof(h->id) - 1] = '\0';
+  h->streak = 0;
+  h->skip_until = 0;
+  return h;
+}
+
+static int engine_is_cooling(const char *id) {
+  if (!id)
+    return 0;
+  int cooling = 0;
+  pthread_mutex_lock(&engine_health_mu);
+  EngineHealth *h = engine_health_find(id);
+  if (h && h->skip_until > time(NULL))
+    cooling = 1;
+  pthread_mutex_unlock(&engine_health_mu);
+  return cooling;
+}
+
+static void engine_note_result(const char *id, ScrapeStatus st) {
+  if (!id)
+    return;
+  pthread_mutex_lock(&engine_health_mu);
+  EngineHealth *h = engine_health_find(id);
+  if (h) {
+    if (st == SCRAPE_STATUS_OK) {
+      h->streak = 0;
+      h->skip_until = 0;
+    } else if (st == SCRAPE_STATUS_BLOCKED ||
+               st == SCRAPE_STATUS_FETCH_ERROR ||
+               st == SCRAPE_STATUS_PARSE_MISMATCH) {
+      h->streak++;
+      if (h->streak >= 2) {
+        int sec = 30 * h->streak;
+        if (sec > 600)
+          sec = 600;
+        h->skip_until = time(NULL) + sec;
+      }
+    }
+  }
+  pthread_mutex_unlock(&engine_health_mu);
 }
 
 int check_cache_for_job(ScrapeJob *job) {
@@ -258,6 +361,8 @@ void process_response(ScrapeJob *job, CURL *handle, CURLMsg *msg) {
     job->status = SCRAPE_STATUS_FETCH_ERROR;
   }
 
+  engine_note_result(job->engine->id, job->status);
+
   cleanup_job_handle(job, handle);
 }
 
@@ -289,6 +394,13 @@ int setup_job(ScrapeJob *job, CURLM *multi_handle) {
 
   if (check_cache_for_job(job))
     return 0;
+
+  // an explicitly chosen engine never cools silently: if it fails the
+  // user sees the warning instead of an empty page
+  if (!job->user_selected && engine_is_cooling(job->engine->id)) {
+    job->status = SCRAPE_STATUS_EMPTY;
+    return 0;
+  }
 
   if (job->cache_key && get_cache_ttl_search() > 0) {
     if (cache_lock_acquire(job->cache_key) == 0) {
@@ -410,8 +522,10 @@ static void cleanup_unfinished_jobs(CURLM *multi_handle, ScrapeJob *jobs,
     curl_easy_cleanup(jobs[i].handle);
     jobs[i].handle = NULL;
 
-    if (jobs[i].status == SCRAPE_STATUS_PENDING)
+    if (jobs[i].status == SCRAPE_STATUS_PENDING) {
       jobs[i].status = SCRAPE_STATUS_FETCH_ERROR;
+      engine_note_result(jobs[i].engine->id, jobs[i].status);
+    }
   }
 }
 

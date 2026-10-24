@@ -173,6 +173,13 @@ void snippet_strip_feed_meta(char *s) {
   if (!s || !s[0])
     return;
 
+  // collapse leading whitespace from upstream extracts
+  char *lead = s;
+  while (*lead == ' ' || *lead == '\n' || *lead == '\r' || *lead == '\t')
+    lead++;
+  if (lead > s)
+    memmove(s, lead, strlen(lead) + 1);
+
   char *cut = strstr(s, "Article URL:");
   char *c2 = strstr(s, "Comments URL:");
   if (c2 && (!cut || c2 < cut))
@@ -203,6 +210,27 @@ void snippet_strip_feed_meta(char *s) {
                          hashc[-1] == '\r'))
       hashc--;
     *hashc = '\0';
+  }
+
+  /* mediawiki extracts leak interlanguage markup like [[ja:Rust]] */
+  if (strstr(s, "[[")) {
+    char *w = s;
+    char *p = s;
+    while (*p) {
+      if (p[0] == '[' && p[1] == '[') {
+        char *close = strstr(p + 2, "]]");
+        if (close) {
+          p = close + 2;
+          if (*p == ' ')
+            p++;
+          continue;
+        }
+      }
+      *w++ = *p++;
+    }
+    *w = '\0';
+    while (w > s && (w[-1] == ' ' || w[-1] == '\n' || w[-1] == '\r'))
+      *--w = '\0';
   }
 
   size_t n = strlen(s);

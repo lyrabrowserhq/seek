@@ -4,6 +4,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <openssl/evp.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -254,4 +255,123 @@ void cache_cleanup(time_t max_age) {
     }
     closedir(dir);
   }
+}
+
+/* background reaper: sweeps expired entries every 5 minutes and enforces a
+   hard byte cap by evicting oldest files first, so the cache cannot grow
+   without bound under sustained load */
+
+typedef struct {
+  time_t ttl_search;
+} ReaperCfg;
+
+#define CACHE_REAPER_INTERVAL_SEC 300
+#define CACHE_MAX_BYTES (256L * 1024 * 1024)
+
+typedef struct {
+  char path[BUFFER_SIZE_XLARGE];
+  time_t mtime;
+  long size;
+} EvictEnt;
+
+static int evict_cmp(const void *a, const void *b) {
+  const EvictEnt *ea = (const EvictEnt *)a;
+  const EvictEnt *eb = (const EvictEnt *)b;
+  if (ea->mtime < eb->mtime)
+    return -1;
+  if (ea->mtime > eb->mtime)
+    return 1;
+  return 0;
+}
+
+static long cache_total_bytes(EvictEnt **out_entries, int *out_count) {
+  /* gather every cache file with mtime+size for eviction ordering */
+  long total = 0;
+  int cap = 256, n = 0;
+  EvictEnt *ents = malloc(sizeof(EvictEnt) * cap);
+  if (!ents)
+    return 0;
+
+  for (int d = 0; HEX_CHARS[d]; d++) {
+    char subdir[BUFFER_SIZE_LARGE];
+    snprintf(subdir, sizeof(subdir), "%s/%c", cache_dir, HEX_CHARS[d]);
+    DIR *dir = opendir(subdir);
+    if (!dir)
+      continue;
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != NULL) {
+      size_t len = strlen(entry->d_name);
+      if (len <= 7 || strcmp(entry->d_name + len - 7, ".cache") != 0)
+        continue;
+      struct stat st;
+      if (n == cap) {
+        cap *= 2;
+        EvictEnt *grown = realloc(ents, sizeof(EvictEnt) * cap);
+        if (!grown) {
+          closedir(dir);
+          free(ents);
+          *out_entries = NULL;
+          *out_count = 0;
+          return total;
+        }
+        ents = grown;
+      }
+      EvictEnt *e = &ents[n];
+      snprintf(e->path, sizeof(e->path), "%s/%s", subdir, entry->d_name);
+      if (stat(e->path, &st) != 0)
+        continue;
+      e->mtime = st.st_mtime;
+      e->size = st.st_size;
+      total += st.st_size;
+      n++;
+    }
+    closedir(dir);
+  }
+  *out_entries = ents;
+  *out_count = n;
+  return total;
+}
+
+static void *cache_reaper_thread(void *arg) {
+  time_t ttl = *(time_t *)arg;
+  free(arg);
+  for (;;) {
+    sleep(CACHE_REAPER_INTERVAL_SEC);
+    if (cache_dir[0] == '\0')
+      break;
+    cache_cleanup(ttl);
+
+    /* evict oldest entries while over the byte cap */
+    EvictEnt *ents = NULL;
+    int n = 0;
+    long total = cache_total_bytes(&ents, &n);
+    if (ents && total > CACHE_MAX_BYTES) {
+      qsort(ents, n, sizeof(EvictEnt), evict_cmp);
+      long need = total - CACHE_MAX_BYTES;
+      for (int i = 0; i < n && need > 0; i++) {
+        if (remove(ents[i].path) == 0)
+          need -= ents[i].size;
+      }
+      fprintf(stderr, "[INFO] cache reaper evicted to cap %ld bytes\n",
+              (long)CACHE_MAX_BYTES);
+    }
+    free(ents);
+  }
+  return NULL;
+}
+
+int cache_start_reaper(time_t ttl_search) {
+  if (cache_dir[0] == '\0')
+    return -1;
+  time_t *arg = malloc(sizeof(time_t));
+  if (!arg)
+    return -1;
+  *arg = ttl_search;
+  pthread_t t;
+  if (pthread_create(&t, NULL, cache_reaper_thread, arg) != 0) {
+    free(arg);
+    return -1;
+  }
+  pthread_detach(t);
+  return 0;
 }

@@ -10,11 +10,18 @@ size_t http_response_append_chunk(void *contents, size_t size, size_t nmemb,
   size_t realsize = size * nmemb;
   HttpResponse *mem = (HttpResponse *)userp;
 
+  /* stop growing past the cap - a runaway upstream response must not
+     balloon the heap. consume but discard the rest so a truncated body
+     can still parse */
   if (mem->size + realsize + 1 > mem->capacity) {
+    if (mem->capacity >= MAX_RESPONSE_BUFFER)
+      return realsize;
     size_t new_cap =
         mem->capacity == 0 ? INITIAL_BUFFER_SIZE : mem->capacity * 2;
     while (new_cap < mem->size + realsize + 1)
       new_cap *= 2;
+    if (new_cap > MAX_RESPONSE_BUFFER)
+      new_cap = MAX_RESPONSE_BUFFER;
 
     char *ptr = realloc(mem->memory, new_cap);
     if (!ptr) {
@@ -24,9 +31,15 @@ size_t http_response_append_chunk(void *contents, size_t size, size_t nmemb,
     mem->capacity = new_cap;
   }
 
-  memcpy(&(mem->memory[mem->size]), contents, realsize);
-  mem->size += realsize;
-  mem->memory[mem->size] = 0;
+  /* clip to whatever room is left - a chunk bigger than the remaining
+     space is dropped, not written past the buffer */
+  size_t room = mem->capacity > mem->size ? mem->capacity - mem->size - 1 : 0;
+  size_t take = realsize < room ? realsize : room;
+  if (take > 0) {
+    memcpy(&(mem->memory[mem->size]), contents, take);
+    mem->size += take;
+    mem->memory[mem->size] = 0;
+  }
 
   return realsize;
 }

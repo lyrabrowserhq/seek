@@ -14,9 +14,10 @@ LDFLAGS :=
 else
 HARDEN_CFLAGS := -D_FORTIFY_SOURCE=2 -fstack-protector-strong -fPIE
 HARDEN_LDFLAGS := -Wl,-z,relro,-z,now -pie
-CFLAGS  := -Wall -Wextra -O2 -Isrc -Ibeaker -I/usr/include/libxml2 -D_GNU_SOURCE $(HARDEN_CFLAGS)
+LEXBOR_LIB := vendor/lexbor/liblexbor_static.a
+CFLAGS  := -Wall -Wextra -O2 -Isrc -Ibeaker -Ivendor/lexbor -I/usr/include/libxml2 -D_GNU_SOURCE $(HARDEN_CFLAGS)
 LDFLAGS := $(HARDEN_LDFLAGS)
-LIBS    := $(BEAKER_LIB) -lcurl -lxml2 -lpthread -lm -lssl -lcrypto -lz
+LIBS    := $(BEAKER_LIB) $(LEXBOR_LIB) -lcurl -lxml2 -lpthread -lm -lssl -lcrypto -lz
 endif
 
 SRC_DIR := src
@@ -35,7 +36,7 @@ all: $(TARGET)
 
 .DEFAULT_GOAL := all
 
-$(TARGET): $(OBJS) $(BEAKER_LIB)
+$(TARGET): $(OBJS) $(BEAKER_LIB) $(LEXBOR_LIB)
 	@mkdir -p $(BIN_DIR)
 	$(CC) $(OBJS) -o $@ $(LDFLAGS) $(LIBS)
 	@echo "Build complete: $(TARGET)"
@@ -51,6 +52,8 @@ run: $(TARGET)
 TEST_ENGINE_OBJS = $(OBJ_DIR)/Config.o $(OBJ_DIR)/Cache/Cache.o \
 	$(OBJ_DIR)/Proxy/Proxy.o $(OBJ_DIR)/Scraping/Scraping.o \
 	$(OBJ_DIR)/Scraping/ScrapingHttp.o $(OBJ_DIR)/Scraping/ScrapingParsers.o \
+	$(OBJ_DIR)/Scraping/HtmlParsers.o $(OBJ_DIR)/Scraping/Hdoc.o \
+	$(LEXBOR_LIB) \
 	$(OBJ_DIR)/Scraping/JsonEngines.o \
 	$(OBJ_DIR)/Utility/XmlHelper.o $(OBJ_DIR)/Utility/Unescape.o \
 	$(OBJ_DIR)/Utility/Utility.o
@@ -83,6 +86,9 @@ TEST_REST_LINK  := -lcurl -lxml2 -lpthread -lm -lssl -lcrypto
 TEST_CACHE_LINK := -lssl -lcrypto -lm
 TEST_XML_LINK   := -lxml2
 endif
+
+$(LEXBOR_LIB):
+	@echo "vendored lexbor static lib missing - rebuild via cmake in vendor/lexbor-src"; exit 1
 
 $(BEAKER_LIB): $(BEAKER_SRCS) beaker/Makefile
 	$(MAKE) -C beaker all
@@ -138,6 +144,15 @@ $(BIN_DIR)/fuzz_html_escape: $(TEST_DIR)/fuzz_html_escape.c $(TEST_OBJ_HTML) | $
 	$(FUZZ_CC) -fsanitize=fuzzer,address -g -O1 -Itests -Isrc \
 		$(TEST_DIR)/fuzz_html_escape.c $(TEST_OBJ_HTML) -o $@
 
+$(BIN_DIR)/test_html_parsers: $(TEST_DIR)/test_html_parsers.c \
+	$(OBJ_DIR)/Scraping/HtmlParsers.o $(OBJ_DIR)/Scraping/Hdoc.o \
+	$(OBJ_DIR)/Utility/Unescape.o $(OBJ_DIR)/Utility/Utility.o \
+	$(LEXBOR_LIB) $(BEAKER_LIB) | $(BIN_DIR)
+	$(CC) $(CFLAGS) -Itests $< $(OBJ_DIR)/Scraping/HtmlParsers.o \
+		$(OBJ_DIR)/Scraping/Hdoc.o $(OBJ_DIR)/Utility/Unescape.o \
+		$(OBJ_DIR)/Utility/Utility.o $(LEXBOR_LIB) $(BEAKER_LIB) -o $@ \
+		$(LDFLAGS) $(TEST_REST_LINK) -lz
+
 $(BIN_DIR)/test_html_escape: $(TEST_DIR)/test_html_escape.c $(TEST_OBJ_HTML) | $(BIN_DIR)
 	$(CC) $(TEST_CFLAGS) -Isrc $< $(TEST_OBJ_HTML) -o $@
 
@@ -179,20 +194,30 @@ $(BIN_DIR)/test_rank: $(TEST_DIR)/test_rank.c $(OBJ_DIR)/Utility/Rank.o | $(BIN_
 
 $(BIN_DIR)/test_json_engines: $(TEST_DIR)/test_json_engines.c \
 	$(OBJ_DIR)/Scraping/JsonEngines.o $(OBJ_DIR)/Scraping/ScrapingParsers.o \
+	$(OBJ_DIR)/Scraping/HtmlParsers.o $(OBJ_DIR)/Scraping/Hdoc.o \
+	$(LEXBOR_LIB) \
 	$(OBJ_DIR)/Utility/XmlHelper.o $(OBJ_DIR)/Utility/Unescape.o \
 	$(OBJ_DIR)/Utility/Utility.o $(OBJ_DIR)/Config.o $(BEAKER_LIB) | $(BIN_DIR)
 	$(CC) $(CFLAGS) -Itests $< $(OBJ_DIR)/Scraping/JsonEngines.o \
-		$(OBJ_DIR)/Scraping/ScrapingParsers.o $(OBJ_DIR)/Utility/XmlHelper.o \
-		$(OBJ_DIR)/Utility/Unescape.o $(OBJ_DIR)/Utility/Utility.o \
+		$(OBJ_DIR)/Scraping/ScrapingParsers.o \
+		$(OBJ_DIR)/Scraping/HtmlParsers.o $(OBJ_DIR)/Scraping/Hdoc.o \
+		$(LEXBOR_LIB) \
+		$(OBJ_DIR)/Utility/XmlHelper.o $(OBJ_DIR)/Utility/Unescape.o \
+		$(OBJ_DIR)/Utility/Utility.o \
 		$(OBJ_DIR)/Config.o $(BEAKER_LIB) -o $@ $(LDFLAGS) $(TEST_REST_LINK) -lz
 
 $(BIN_DIR)/test_engine_registry: $(TEST_DIR)/test_engine_registry.c \
 	$(OBJ_DIR)/Scraping/JsonEngines.o $(OBJ_DIR)/Scraping/ScrapingParsers.o \
+	$(OBJ_DIR)/Scraping/HtmlParsers.o $(OBJ_DIR)/Scraping/Hdoc.o \
+	$(LEXBOR_LIB) \
 	$(OBJ_DIR)/Utility/XmlHelper.o $(OBJ_DIR)/Utility/Unescape.o \
 	$(OBJ_DIR)/Utility/Utility.o $(OBJ_DIR)/Config.o $(BEAKER_LIB) | $(BIN_DIR)
 	$(CC) $(CFLAGS) -Itests $< $(OBJ_DIR)/Scraping/JsonEngines.o \
-		$(OBJ_DIR)/Scraping/ScrapingParsers.o $(OBJ_DIR)/Utility/XmlHelper.o \
-		$(OBJ_DIR)/Utility/Unescape.o $(OBJ_DIR)/Utility/Utility.o \
+		$(OBJ_DIR)/Scraping/ScrapingParsers.o \
+		$(OBJ_DIR)/Scraping/HtmlParsers.o $(OBJ_DIR)/Scraping/Hdoc.o \
+		$(LEXBOR_LIB) \
+		$(OBJ_DIR)/Utility/XmlHelper.o $(OBJ_DIR)/Utility/Unescape.o \
+		$(OBJ_DIR)/Utility/Utility.o \
 		$(OBJ_DIR)/Config.o $(BEAKER_LIB) -o $@ $(LDFLAGS) $(TEST_REST_LINK) -lz
 
 $(BIN_DIR)/test_today: $(TEST_DIR)/test_today.c $(OBJ_DIR)/Infobox/Today.o \
@@ -223,6 +248,7 @@ test-property: $(BIN_DIR)/test_property
 test-rest: $(BIN_DIR)/test_config $(BIN_DIR)/test_cache $(BIN_DIR)/test_xmlhelper \
 	$(BIN_DIR)/test_httpclient $(BIN_DIR)/test_proxy $(BIN_DIR)/test_ratelimit \
 	$(BIN_DIR)/test_rank $(BIN_DIR)/test_json_engines $(BIN_DIR)/test_engine_registry \
+	$(BIN_DIR)/test_html_parsers \
 	$(BIN_DIR)/test_today $(BIN_DIR)/test_favicon $(BIN_DIR)/smoke_http
 	./$(BIN_DIR)/test_config
 	./$(BIN_DIR)/test_cache
@@ -233,6 +259,7 @@ test-rest: $(BIN_DIR)/test_config $(BIN_DIR)/test_cache $(BIN_DIR)/test_xmlhelpe
 	./$(BIN_DIR)/test_rank
 	./$(BIN_DIR)/test_json_engines
 	./$(BIN_DIR)/test_engine_registry
+	./$(BIN_DIR)/test_html_parsers
 	./$(BIN_DIR)/test_today
 	./$(BIN_DIR)/test_favicon
 	./$(BIN_DIR)/smoke_http

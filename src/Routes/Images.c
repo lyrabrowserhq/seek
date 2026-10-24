@@ -181,6 +181,31 @@ int images_handler(UrlParams *params) {
   }
   free(request_cache_key);
 
+  /* rendered-page cache - image grids are the most expensive page to build,
+     so repeat queries skip the whole scrape path */
+  char *page_key = NULL;
+  {
+    char scope[2048];
+    snprintf(scope, sizeof(scope), "img|%s|%s|%s|%s|%s|%s|%s",
+             filters.region, filters.safe, filters.time, filters.size,
+             filters.color, filters.type, filters.layout);
+    page_key = cache_compute_key(raw_query, page, scope);
+  }
+  {
+    char *cached = NULL;
+    size_t clen = 0;
+    if (page_key &&
+        cache_get(page_key, get_cache_ttl_search(), &cached, &clen) == 0 &&
+        cached) {
+      send_response(cached);
+      free(cached);
+      free(page_key);
+      free(display_query);
+      free_context(&ctx);
+      return 0;
+    }
+  }
+
   ImageResult *results = NULL;
   int result_count = 0;
 
@@ -204,6 +229,7 @@ int images_handler(UrlParams *params) {
     } else {
       send_status("502 Bad Gateway");
     }
+    free(page_key);
     free(display_query);
     free_context(&ctx);
     return -1;
@@ -221,6 +247,7 @@ int images_handler(UrlParams *params) {
       if (inner_counts)
         free(inner_counts);
       free_image_results(results, result_count);
+      free(page_key);
       free(display_query);
       free_context(&ctx);
       return -1;
@@ -243,6 +270,8 @@ int images_handler(UrlParams *params) {
 
   char *rendered = render_template("images.html", &ctx);
   if (rendered) {
+    if (page_key)
+      cache_set(page_key, rendered, strlen(rendered));
     send_response(rendered);
     free(rendered);
   } else {
@@ -259,6 +288,7 @@ int images_handler(UrlParams *params) {
     free_string_matrix(image_matrix, inner_counts, result_count);
 
   free_image_results(results, result_count);
+  free(page_key);
   free(display_query);
   free_context(&ctx);
 

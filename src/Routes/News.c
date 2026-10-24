@@ -589,6 +589,31 @@ int news_handler(UrlParams *params) {
   }
   free(request_cache_key);
 
+  /* rendered-page cache - repeat news queries skip every feed fetch */
+  char *page_key = NULL;
+  {
+    char *lang = get_locale(NULL);
+    char scope[1024];
+    snprintf(scope, sizeof(scope), "news|%s|%s", lang ? lang : "",
+             only_source ? only_source->id : "");
+    page_key = cache_compute_key(raw_query, 0, scope);
+    free(lang);
+  }
+  {
+    char *cached = NULL;
+    size_t clen = 0;
+    if (page_key &&
+        cache_get(page_key, get_cache_ttl_search(), &cached, &clen) == 0 &&
+        cached) {
+      send_response(cached);
+      free(cached);
+      free(page_key);
+      free(display_query);
+      free_context(&ctx);
+      return 0;
+    }
+  }
+
   NewsItem items[NEWS_MAX_ITEMS];
   int total = 0;
 
@@ -604,7 +629,7 @@ int news_handler(UrlParams *params) {
   HttpGetJob net_jobs[DEFAULT_SOURCE_COUNT];
   int net_idx[DEFAULT_SOURCE_COUNT];
   int net_n = 0;
-  time_t ttl = (time_t)get_cache_ttl_infobox();
+  time_t ttl = (time_t)get_cache_ttl_search();
   const char *news_ua =
       "Mozilla/5.0 (compatible; Seek/1.0; +https://seek.lyrabrowser.com)";
 
@@ -867,6 +892,8 @@ int news_handler(UrlParams *params) {
 
   char *rendered = render_template("news.html", &ctx);
   if (rendered) {
+    if (page_key)
+      cache_set(page_key, rendered, strlen(rendered));
     send_response(rendered);
     free(rendered);
   } else {
@@ -882,6 +909,7 @@ int news_handler(UrlParams *params) {
   if (article_matrix)
     free_string_matrix(article_matrix, inner_counts, total);
 
+  free(page_key);
   free(display_query);
   free_context(&ctx);
   return 0;

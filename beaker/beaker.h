@@ -143,6 +143,7 @@ char *get_cookie(const char *cookie_name);
 
 void set_handler(const char *path, RequestHandler handler);
 char *parse_request_url(const char *request_line, UrlParams *params);
+int beaker_parse_body_params(const char *body, UrlParams *params);
 const char *get_mime_type(const char *file_path);
 bool serve_static_file(const char *request_path_relative_to_static);
 bool serve_static_file_with_mime(const char *request_path_relative_to_static,

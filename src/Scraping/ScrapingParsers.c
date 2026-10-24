@@ -2,9 +2,18 @@
 #include "../Utility/XmlHelper.h"
 #include "Config.h"
 #include "JsonEngines.h"
+#include "Hdoc.h"
 #include "Scraping.h"
 #include <libxml/HTMLparser.h>
 #include <libxml/xpath.h>
+static void trim_inplace(char *s);
+extern int parse_ddg_lite_h(const char *, Hdoc *, SearchResult **, int);
+extern int parse_startpage_h(const char *, Hdoc *, SearchResult **, int);
+extern int parse_brave_h(const char *, Hdoc *, SearchResult **, int);
+extern int parse_yahoo_h(const char *, Hdoc *, SearchResult **, int);
+extern int parse_mojeek_h(const char *, Hdoc *, SearchResult **, int);
+extern int parse_wiby_h(const char *, Hdoc *, SearchResult **, int);
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -31,6 +40,7 @@ void assign_result(SearchResult *result, char *url, char *title, char *snippet,
   result->url = unescape ? unescape_search_url(url) : strdup(url ? url : "");
   result->title = strdup(title ? title : "No Title");
   result->snippet = strdup(snippet ? snippet : "");
+  result->date = NULL;
 }
 
 void free_xml_node_list(char *title, char *url, char *snippet) {
@@ -489,18 +499,113 @@ static int parse_yacy(const char *engine_name, xmlDocPtr doc,
             ? xml_node_content(desc_obj->nodesetval->nodeTab[0])
             : NULL;
 
+    xmlXPathObjectPtr date_obj = xml_xpath_eval(ctx, "./pubDate");
+    char *date_text =
+        (date_obj && date_obj->nodesetval && date_obj->nodesetval->nodeNr > 0)
+            ? xml_node_content(date_obj->nodesetval->nodeTab[0])
+            : NULL;
+
     if (url && title) {
       assign_result(&(*out_results)[found_count], url, title, snippet_text, 0);
+      if (date_text && date_text[0])
+        (*out_results)[found_count].date = strdup(date_text);
       found_count++;
     }
 
     free_xml_node_list(title, url, snippet_text);
+    free(date_text);
     if (title_obj)
       xmlXPathFreeObject(title_obj);
     if (link_obj)
       xmlXPathFreeObject(link_obj);
     if (desc_obj)
       xmlXPathFreeObject(desc_obj);
+    if (date_obj)
+      xmlXPathFreeObject(date_obj);
+  }
+
+  ctx->node = NULL;
+  free_xpath_objects(ctx, obj);
+  return found_count;
+}
+
+/* arxiv atom feed - entries under http://arxiv.org namespace, matched by
+   local-name() to skip namespace registration */
+int parse_arxiv(const char *engine_name, xmlDocPtr doc,
+                       SearchResult **out_results, int max_results) {
+  (void)engine_name;
+  int found_count = 0;
+
+  xmlXPathContextPtr ctx = create_xpath_context(doc);
+  if (!ctx)
+    return 0;
+
+  xmlXPathObjectPtr obj =
+      xml_xpath_eval(ctx, "//*[local-name()='entry']");
+
+  if (!obj || !obj->nodesetval || obj->nodesetval->nodeNr == 0) {
+    free_xpath_objects(ctx, obj);
+    return 0;
+  }
+
+  int num_items = obj->nodesetval->nodeNr;
+  *out_results = alloc_results_array(num_items, max_results);
+  if (!*out_results) {
+    free_xpath_objects(ctx, obj);
+    return 0;
+  }
+
+  for (int i = 0; i < num_items && found_count < max_results; i++) {
+    xmlNodePtr item_node = obj->nodesetval->nodeTab[i];
+    ctx->node = item_node;
+
+    char *title = xpath_text_ctx(ctx, "./*[local-name()='title']");
+    char *url = xpath_text_ctx(ctx, "./*[local-name()='id']");
+    char *snippet = xpath_text_ctx(ctx, "./*[local-name()='summary']");
+    char *date = xpath_text_ctx(ctx, "./*[local-name()='published']");
+    /* authors */
+    char *author = xpath_text_ctx(
+        ctx, "./*[local-name()='author']/*[local-name()='name']");
+
+    if (url && title) {
+      /* fold whitespace inside the title/summary - atom pads them */
+      trim_inplace(title);
+      if (snippet)
+        trim_inplace(snippet);
+      char *meta = NULL;
+      if (author && *author) {
+        size_t need = strlen(author) + strlen(date ? date : "") + 8;
+        meta = malloc(need);
+        if (meta) {
+          if (date && *date)
+            snprintf(meta, need, "%s - %.10s", author, date);
+          else
+            snprintf(meta, need, "%s", author);
+        }
+      } else if (date && *date) {
+        meta = strdup(date);
+      }
+      if (meta) {
+        char *joined = malloc(strlen(meta) + strlen(snippet ? snippet : "") + 4);
+        if (joined) {
+          snprintf(joined, strlen(meta) + strlen(snippet ? snippet : "") + 4,
+                   "%s%s%s", meta, snippet ? " - " : "", snippet ? snippet : "");
+          free(snippet);
+          snippet = joined;
+        }
+        free(meta);
+      }
+      assign_result(&(*out_results)[found_count], url, title, snippet, 0);
+      if (date && date[0])
+        (*out_results)[found_count].date = strdup(date);
+      found_count++;
+    }
+
+    free(title);
+    free(url);
+    free(snippet);
+    free(date);
+    free(author);
   }
 
   ctx->node = NULL;
@@ -571,12 +676,100 @@ SearchEngine ENGINE_REGISTRY[] = {
      .base_url = "https://index.lyrabrowser.com/v1/search.rss?limit=20&q=",
      .host_header = "index.lyrabrowser.com",
      .referer = "https://index.lyrabrowser.com/",
-     .page_param = "page",
-     .page_multiplier = 1,
-     .page_base = 1,
+     .page_param = "offset",
+     .page_multiplier = MAX_RESULTS_PER_ENGINE,
+     .page_base = 0,
      .parser = parse_yacy,
      .enabled = 1,
      .is_xml = 1},
+    {.id = "arxiv",
+     .name = "arXiv",
+     .base_url = "https://export.arxiv.org/api/query?start=0&max_results=12&search_query=all:",
+     .host_header = "export.arxiv.org",
+     .referer = "https://arxiv.org/",
+     .page_param = "start",
+     .page_multiplier = 12,
+     .page_base = 0,
+     .parser = parse_arxiv,
+     .enabled = 1,
+     .is_xml = 1},
+    {.id = "europepmc",
+     .name = "Europe PMC",
+     .base_url = "https://www.ebi.ac.uk/europepmc/webservices/rest/search?format=json&pageSize=12&query=",
+     .host_header = "www.ebi.ac.uk",
+     .referer = "https://europepmc.org/",
+     .page_param = "cursorMark",
+     .page_multiplier = 0,
+     .page_base = 0,
+     .json_parser = parse_json_engine,
+     .enabled = 1,
+     .is_json = 1},
+    {.id = "s2",
+     .name = "Semantic Scholar",
+     .base_url = "https://api.semanticscholar.org/graph/v1/paper/search?limit=12&fields=title,abstract,url,venue,year,citationCount,externalIds,authors&query=",
+     .host_header = "api.semanticscholar.org",
+     .referer = "https://www.semanticscholar.org/",
+     .page_param = "offset",
+     .page_multiplier = 12,
+     .page_base = 0,
+     .json_parser = parse_json_engine,
+     .enabled = 1,
+     .is_json = 1},
+    {.id = "openalex",
+     .name = "OpenAlex",
+     .base_url = "https://api.openalex.org/works?per-page=12&search=",
+     .host_header = "api.openalex.org",
+     .referer = "https://openalex.org/",
+     .page_param = "page",
+     .page_multiplier = 1,
+     .page_base = 0,
+     .json_parser = parse_json_engine,
+     .enabled = 1,
+     .is_json = 1},
+    {.id = "openlibrary",
+     .name = "Open Library",
+     .base_url = "https://openlibrary.org/search.json?limit=12&q=",
+     .host_header = "openlibrary.org",
+     .referer = "https://openlibrary.org/",
+     .page_param = "offset",
+     .page_multiplier = 12,
+     .page_base = 0,
+     .json_parser = parse_json_engine,
+     .enabled = 1,
+     .is_json = 1},
+    {.id = "gbooks",
+     .name = "Google Books",
+     .base_url = "https://www.googleapis.com/books/v1/volumes?maxResults=12&q=",
+     .host_header = "www.googleapis.com",
+     .referer = "https://books.google.com/",
+     .page_param = "startIndex",
+     .page_multiplier = 12,
+     .page_base = 0,
+     .json_parser = parse_json_engine,
+     .enabled = 1,
+     .is_json = 1},
+    {.id = "itunes",
+     .name = "Podcasts",
+     .base_url = "https://itunes.apple.com/search?media=podcast&entity=podcast&limit=12&term=",
+     .host_header = "itunes.apple.com",
+     .referer = "https://podcasts.apple.com/",
+     .page_param = "",
+     .page_multiplier = 0,
+     .page_base = 0,
+     .json_parser = parse_json_engine,
+     .enabled = 1,
+     .is_json = 1},
+    {.id = "themealdb",
+     .name = "TheMealDB",
+     .base_url = "https://www.themealdb.com/api/json/v1/1/search.php?s=",
+     .host_header = "www.themealdb.com",
+     .referer = "https://www.themealdb.com/",
+     .page_param = "",
+     .page_multiplier = 0,
+     .page_base = 0,
+     .json_parser = parse_json_engine,
+     .enabled = 1,
+     .is_json = 1},
     {.id = "ddg",
      .name = "DuckDuckGo Lite",
      .base_url = "https://lite.duckduckgo.com/lite/?q=",
@@ -586,6 +779,7 @@ SearchEngine ENGINE_REGISTRY[] = {
      .page_multiplier = 30,
      .page_base = 0,
      .parser = parse_ddg_lite,
+     .html_parser = parse_ddg_lite_h,
      .enabled = 1},
     {.id = "brave",
      .name = "Brave",
@@ -596,6 +790,7 @@ SearchEngine ENGINE_REGISTRY[] = {
      .page_multiplier = 10,
      .page_base = 0,
      .parser = parse_brave,
+     .html_parser = parse_brave_h,
      .enabled = 1},
     {.id = "yahoo",
      .name = "Yahoo",
@@ -606,6 +801,7 @@ SearchEngine ENGINE_REGISTRY[] = {
      .page_multiplier = 10,
      .page_base = 1,
      .parser = parse_yahoo,
+     .html_parser = parse_yahoo_h,
      .enabled = 0},
     {.id = "startpage",
      .name = "Startpage",
@@ -616,6 +812,7 @@ SearchEngine ENGINE_REGISTRY[] = {
      .page_multiplier = 1,
      .page_base = 1,
      .parser = parse_startpage,
+     .html_parser = parse_startpage_h,
      .enabled = 0},
     {.id = "wikipedia",
      .name = "Wikipedia",
@@ -758,6 +955,7 @@ SearchEngine ENGINE_REGISTRY[] = {
      .page_multiplier = 10,
      .page_base = 1,
      .parser = parse_mojeek,
+     .html_parser = parse_mojeek_h,
      .enabled = 1},
     {.id = "wiby",
      .name = "Wiby",
@@ -768,6 +966,7 @@ SearchEngine ENGINE_REGISTRY[] = {
      .page_multiplier = 1,
      .page_base = 1,
      .parser = parse_wiby,
+     .html_parser = parse_wiby_h,
      .enabled = 1},
     {.id = "yacy",
      .name = "YaCy",
@@ -823,6 +1022,28 @@ SearchEngine ENGINE_REGISTRY[] = {
      .page_base = 1,
      .json_parser = parse_json_engine,
      .enabled = 0,
+     .is_json = 1},
+    {.id = "osm",
+     .name = "OpenStreetMap",
+     .base_url = "https://nominatim.openstreetmap.org/search?format=jsonv2&limit=12&q=",
+     .host_header = "nominatim.openstreetmap.org",
+     .referer = "https://www.openstreetmap.org/",
+     .page_param = "",
+     .page_multiplier = 0,
+     .page_base = 0,
+     .json_parser = parse_json_engine,
+     .enabled = 1,
+     .is_json = 1},
+    {.id = "peertube",
+     .name = "PeerTube",
+     .base_url = "https://peertube.tv/api/v1/search/videos?count=12&resultType=videos&search=",
+     .host_header = "peertube.tv",
+     .referer = "https://peertube.tv/",
+     .page_param = "start",
+     .page_multiplier = 12,
+     .page_base = 0,
+     .json_parser = parse_json_engine,
+     .enabled = 1,
      .is_json = 1}};
 
 const int ENGINE_COUNT = sizeof(ENGINE_REGISTRY) / sizeof(SearchEngine);
@@ -871,6 +1092,27 @@ static ParserFunc parser_by_name(const char *name) {
     return parse_yacy;
   if (!strcasecmp(name, "lyra"))
     return parse_yacy;
+  if (!strcasecmp(name, "arxiv"))
+    return parse_arxiv;
+  return NULL;
+}
+
+
+static HtmlParserFunc html_parser_by_name(const char *name) {
+  if (!name || !name[0])
+    return NULL;
+  if (!strcasecmp(name, "ddg"))
+    return parse_ddg_lite_h;
+  if (!strcasecmp(name, "startpage"))
+    return parse_startpage_h;
+  if (!strcasecmp(name, "brave"))
+    return parse_brave_h;
+  if (!strcasecmp(name, "yahoo"))
+    return parse_yahoo_h;
+  if (!strcasecmp(name, "mojeek"))
+    return parse_mojeek_h;
+  if (!strcasecmp(name, "wiby"))
+    return parse_wiby_h;
   return NULL;
 }
 
@@ -884,7 +1126,14 @@ static JsonParserFunc json_parser_by_name(const char *name) {
       !strcasecmp(name, "hn") || !strcasecmp(name, "reddit") ||
       !strcasecmp(name, "lobsters") || !strcasecmp(name, "qwant") ||
       !strcasecmp(name, "wikibooks") || !strcasecmp(name, "wikiquote") ||
-      !strcasecmp(name, "lemmy") || !strcasecmp(name, "stackoverflow"))
+      !strcasecmp(name, "lemmy") || !strcasecmp(name, "stackoverflow") ||
+      !strcasecmp(name, "europepmc") || !strcasecmp(name, "s2") ||
+      !strcasecmp(name, "semanticscholar") || !strcasecmp(name, "openalex") ||
+      !strcasecmp(name, "openlibrary") || !strcasecmp(name, "gbooks") ||
+      !strcasecmp(name, "itunes") || !strcasecmp(name, "librivox") ||
+      !strcasecmp(name, "themealdb") || !strcasecmp(name, "osm") ||
+      !strcasecmp(name, "maps") || !strcasecmp(name, "peertube") ||
+      !strcasecmp(name, "videos"))
     return parse_json_engine;
   return NULL;
 }
@@ -940,6 +1189,7 @@ static int flush_engine_block(char id[ENGINE_ID_MAX], char name[ENGINE_NAME_MAX]
   e->page_base = *page_base;
   e->parser = p;
   e->json_parser = jp;
+  e->html_parser = html_parser_by_name(parser_name);
   e->is_json = jp != NULL;
   e->enabled = 1;
   extra_engine_count++;

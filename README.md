@@ -14,6 +14,9 @@ make
 ./bin/seeker
 ```
 
+HTML is parsed by vendored lexbor (`vendor/lexbor`, static); libxml2 is
+still used for the XML/RSS paths (lyra results, news feeds, wiki infobox).
+
 Config is `config.ini`. See `example-config.ini`. Default engines are
 `lyra,ddg,brave,wiby,mojeek`.
 
@@ -27,6 +30,20 @@ TikTok are almost dropped unless the query has `site:reddit` / `reddit.com`
 or Settings turns on forums. Engine checkboxes and the default engine are
 cookies, same as before.
 
+The `...` menu under each result pins, raises, lowers, or blocks its
+domain. Settings has a matching list editor: `++domain` pins,
+`+domain` raises, `-domain` lowers, `!domain` blocks. Everything is a
+cookie, no account.
+
+## Lenses and operators
+
+The lens row under the engine filters narrows results to Forums, Docs,
+or Wikis. The index and the upstream engines understand `site:`,
+`-site:`, `intitle:`, `inurl:`, `before:YYYY-MM-DD`, `after:`,
+`-term` exclusion, and `"quoted phrases"`. At most two results per
+domain are shown; the rest collapse into a `+N more from domain` link
+that re-searches with `site:domain`.
+
 ## Browsers
 
 Any browser can use HTTPS GET `/search?q=`. Lyra should POST `/search` with
@@ -39,6 +56,13 @@ is no third-party analytics beacon.
 `/news` pulls the RSS list in `src/Routes/News.c`. The same items are
 searchable. Add feeds to the Lyra index with `POST /v1/feeds` on the
 indexer so they also show up in web results.
+
+## Bangs
+
+`!name query` redirects straight to a site. Defaults include `!w`, `!gh`,
+`!r`, `!g`, `!ddg`, `!hn`, `!so`, `!yt`, `!maps`, `!mdn`, `!crates`,
+`!npm`, `!pypi`, `!a`, `!ebay`, `!imdb`, `!t`, `!wa`, `!img`, `!news`
+and more, all listed on `/bangs`. Override with `bangs_file` in config.
 
 License: GPL-2.0 (see LICENSE). Vendored components keep their own
 licenses: beaker/ is LGPL-2.1 and has been modified for Seek
