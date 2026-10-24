@@ -5,6 +5,18 @@ on:
     branches: [master]
     tags: ["v*"]
   pull_request:
+    paths:
+      - "Dockerfile"
+      - ".dockerignore"
+      - "src/**"
+      - "Makefile"
+      - "beaker/**"
+      - "vendor/**"
+      - "docker/**"
+      - "templates/**"
+      - "static/**"
+      - "locales/**"
+      - ".github/workflows/docker.yml"
 
 permissions:
   contents: read

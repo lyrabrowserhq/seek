@@ -3,7 +3,15 @@ name: CI
 on:
   push:
     branches: [master]
+    paths-ignore:
+      - "**.md"
+      - "LICENSE"
+      - "NOTICE"
   pull_request:
+    paths-ignore:
+      - "**.md"
+      - "LICENSE"
+      - "NOTICE"
 
 permissions:
   contents: read
@@ -31,13 +39,13 @@ jobs:
             libssl-dev zlib1g-dev pkg-config
 
       - name: Build
-        run: make
+        run: make -j"$(nproc)"
 
       - name: Test
-        run: make test
+        run: make -j"$(nproc)" test
 
       - name: Build ASan binary
-        run: make asan
+        run: make -j"$(nproc)" asan
 
       - name: ASan smoke test
         run: |
@@ -46,7 +54,7 @@ jobs:
           sed -i 's|dir = .*|dir = /tmp/seeker_ci_cache|' /tmp/seeker-ci.ini
           ./bin/seeker-asan --config /tmp/seeker-ci.ini &
           SRV=$!
-          sleep 2
+          curl -s -o /dev/null --retry 30 --retry-delay 1 --retry-connrefused --max-time 15 "http://127.0.0.1:18899/"
           for p in / /news "/news?format=json" /settings /bangs /opensearch.xml; do
             code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "http://127.0.0.1:18899$p")
             echo "$p -> $code"

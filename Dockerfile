@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM docker.io/library/alpine:3.24@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6 AS builder
+FROM docker.io/library/alpine:3.24@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a AS builder
 # hadolint ignore=DL3018
 RUN apk add --no-cache clang gcc musl-dev make pkgconf ca-certificates \
     libxml2-dev curl-dev openssl-dev zlib-dev binutils
@@ -11,7 +11,7 @@ RUN set -e; \
     rm -rf /src/beaker/build /src/obj /src/bin; \
     make CC=clang all
 
-FROM docker.io/library/alpine:3.24@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
+FROM docker.io/library/alpine:3.24@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a
 # hadolint ignore=DL3018
 RUN apk add --no-cache libxml2 libcurl openssl zlib libgcc wget \
     && addgroup -g 65532 seeker \
