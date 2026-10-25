@@ -11,11 +11,13 @@
     </title>
     <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
     <link rel="preload" href="static/fonts/geist-variable.woff2" as="font" type="font/woff2" crossorigin>
-    <link rel="stylesheet" href="/static/main.css?v=8">
+    <link rel="stylesheet" href="/static/main.css?v=9">
     <link rel="manifest" href="/manifest.json">
-    <script src="static/theme.js?v=2"></script>
+    <script src="static/theme.js?v=3"></script>
+    <script src="static/header.js?v=1" defer></script>
     <script src="static/shortcuts.js" defer></script>
     <script src="static/suggest.js" defer></script>
+    <script src="static/forms.js?v=1" defer></script>
         <script src="static/a11y.js" defer></script>
     <script src="static/images.js?v=2" defer></script>
 </head>
@@ -59,7 +61,7 @@
                 <a href="/settings" class="settings-link" aria-label='{{l("settings_tab")}}' title='{{l("settings_tab")}}'>
                     <span class="ui-icon ui-icon-settings" aria-hidden="true"></span>
                 </a>
-                <button class="theme-toggle-btn" onclick="toggleTheme()" aria-label='{{l("toggle_theme")}}'>
+                <button class="theme-toggle-btn" aria-label='{{l("toggle_theme")}}'>
                     <span class="ui-icon ui-icon-sun sun-icon" aria-hidden="true"></span>
                     <span class="ui-icon ui-icon-moon moon-icon" aria-hidden="true"></span>
                 </button>
@@ -176,27 +178,6 @@
         </div>
         </div>
     </header>
-    <script>
-        document.addEventListener('DOMContentLoaded', () => {
-            const searchBox = document.getElementById('images-search');
-            const searchBtn = document.getElementById('images-search-btn');
-            const form = document.getElementById('images-search-form');
-            if (!searchBox || !searchBtn || !form) return;
-            const updateBtnState = () => {
-                const hasValue = searchBox.value.trim().length > 0;
-                searchBtn.disabled = !hasValue;
-                searchBtn.style.opacity = hasValue ? '1' : '0.4';
-                searchBtn.style.cursor = hasValue ? 'pointer' : 'default';
-            };
-            searchBox.addEventListener('input', updateBtnState);
-            updateBtnState();
-            form.addEventListener('submit', (e) => {
-                if (!searchBox.value.trim()) {
-                    e.preventDefault();
-                }
-            });
-        });
-    </script>
     <main class="image-results-container" id="main-content" role="main">
         {{if exists images}}
         <div class="image-masonry">

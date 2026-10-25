@@ -141,6 +141,9 @@ static void build_cookie_headers(char *cookie_headers_buffer,
               sizeof(single_cookie_header) - strlen(single_cookie_header) - 1);
     }
 
+    strncat(single_cookie_header, "; SameSite=Lax",
+            sizeof(single_cookie_header) - strlen(single_cookie_header) - 1);
+
     strncat(single_cookie_header, "\r\n",
             sizeof(single_cookie_header) - strlen(single_cookie_header) - 1);
 

@@ -30,3 +30,5 @@ void string_matrix_free(StringMatrix *matrix);
 void snippet_strip_feed_meta(char *s);
 
 #endif
+
+int url_is_web(const char *url);

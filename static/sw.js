@@ -1,4 +1,4 @@
-const CACHE_NAME = 'seeker-v2';
+const CACHE_NAME = 'seeker-v4';
 const STATIC_ASSETS = [
   '/static/main.css',
   '/static/theme.js',

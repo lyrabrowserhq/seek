@@ -651,7 +651,8 @@ int news_handler(UrlParams *params) {
     if (n > 0) {
       for (int i = 0; i < n; i++) {
         if (total >= NEWS_MAX_ITEMS ||
-            !item_matches_query(&batch[i], display_query)) {
+            !item_matches_query(&batch[i], display_query) ||
+            !url_is_web(batch[i].link)) {
           free_news_item(&batch[i]);
           continue;
         }
@@ -661,6 +662,7 @@ int news_handler(UrlParams *params) {
     }
     net_jobs[net_n].url = src->feed_url;
     net_jobs[net_n].user_agent = news_ua;
+    net_jobs[net_n].no_follow = 0;
     net_jobs[net_n].handle = NULL;
     net_jobs[net_n].resp = (HttpResponse){0};
     net_idx[net_n] = s;
@@ -686,7 +688,8 @@ int news_handler(UrlParams *params) {
     http_response_free(&net_jobs[j].resp);
     for (int i = 0; i < n; i++) {
       if (total >= NEWS_MAX_ITEMS ||
-          !item_matches_query(&batch[i], display_query)) {
+          !item_matches_query(&batch[i], display_query) ||
+          !url_is_web(batch[i].link)) {
         free_news_item(&batch[i]);
         continue;
       }

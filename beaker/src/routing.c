@@ -525,8 +525,15 @@ bool serve_data(const char *data, size_t size, const char *mime_type) {
     return false;
   }
 
+  /* attacker-controlled images (e.g. svg served by /favicon) can carry
+     script when navigated to directly - sandbox them */
+  static const char image_sandbox_csp[] =
+      "default-src 'none'; style-src 'unsafe-inline'; sandbox";
+
   char sec[6144];
-  int seclen = beaker_format_security_headers(sec, sizeof(sec));
+  int seclen = beaker_format_security_headers_with_csp(
+      sec, sizeof(sec),
+      strncmp(mime_type, "image/", 6) == 0 ? image_sandbox_csp : NULL);
   if (seclen < 0)
     seclen = 0;
 

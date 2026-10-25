@@ -77,6 +77,7 @@ typedef struct {
   int rate_limit_images_interval;
   int rate_limit_news_requests;
   int rate_limit_news_interval;
+  int trusted_proxy_hops;
 } Config;
 
 extern int g_http_timeout_sec;
@@ -85,6 +86,7 @@ extern int g_max_concurrent_fetches;
 extern int g_cache_stampede_wait_ms;
 extern int g_cache_stampede_max_attempts;
 extern int g_retry_backoff_ms;
+extern int g_trusted_proxy_hops;
 
 void apply_runtime_config(const Config *cfg);
 

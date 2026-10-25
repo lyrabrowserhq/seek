@@ -2,6 +2,7 @@
 #include "../Cache/Cache.h"
 #include "../Scraping/Scraping.h"
 #include "../Utility/HttpClient.h"
+#include "../Utility/HtmlEscape.h"
 #include "Config.h"
 #include <curl/curl.h>
 #include <libxml/parser.h>
@@ -96,6 +97,16 @@ static void extract_wiki_info(xmlNode *node, InfoBox *info) {
           info->extract = strdup((const char *)content);
 
           shorten_summary(&(info->extract), WIKI_SUMMARY_MAX_CHARS);
+          if (info->extract) {
+            /* explaintext is plain text but the template renders it |safe */
+            size_t esc_cap = strlen(info->extract) * 6 + 1;
+            char *esc = malloc(esc_cap);
+            if (esc) {
+              html_escape_text(info->extract, esc, esc_cap);
+              free(info->extract);
+              info->extract = esc;
+            }
+          }
           xmlFree(content);
         }
       }

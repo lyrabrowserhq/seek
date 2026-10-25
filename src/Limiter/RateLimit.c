@@ -1,4 +1,5 @@
 #include "RateLimit.h"
+#include "../Config.h"
 #include <arpa/inet.h>
 #include <ctype.h>
 #include <netinet/in.h>
@@ -165,7 +166,10 @@ static void hash_ip(const char *ip, char *out, size_t out_sz) {
     sprintf(out + 1 + (i * 2), "%02x", hash[i]);
 }
 
-static void parse_xff(char *out, size_t out_sz) {
+/* take the hop `hops` entries from the right end of X-Forwarded-For; the
+   rightmost was appended by the nearest proxy. only call this when the
+   socket peer is a trusted local/private proxy. */
+static void parse_xff(char *out, size_t out_sz, int hops) {
   const char *header = str_case_str(current_request_buffer, "x-forwarded-for:");
   if (!header)
     return;
@@ -173,23 +177,24 @@ static void parse_xff(char *out, size_t out_sz) {
   const char *line_end = strpbrk(header, "\r\n");
   size_t line_len = line_end ? (size_t)(line_end - header) : strlen(header);
 
+  if (hops < 1)
+    hops = 1;
+  char entries[32][64];
+  int n = 0;
   const char *p = header;
   const char *end = header + line_len;
-  while (p < end) {
+  while (p < end && n < 32) {
     const char *comma = memchr(p, ',', (size_t)(end - p));
     size_t value_len = comma ? (size_t)(comma - p) : (size_t)(end - p);
-    char hop[64];
-    trim_copy(hop, sizeof(hop), p, value_len);
-    if (hop[0] && !rate_limit_ip_is_local(hop)) {
-      snprintf(out, out_sz, "%s", hop);
-      return;
-    }
-    if (hop[0] && out[0] == '\0')
-      snprintf(out, out_sz, "%s", hop);
+    trim_copy(entries[n], sizeof(entries[n]), p, value_len);
+    if (entries[n][0])
+      n++;
     if (!comma)
       break;
     p = comma + 1;
   }
+  if (n >= hops)
+    snprintf(out, out_sz, "%s", entries[n - hops]);
 }
 
 static void get_client_key_from_socket(char *client_key,
@@ -230,9 +235,15 @@ void rate_limit_get_client_key(char *client_key, size_t client_key_size) {
   client_key[0] = '\0';
   char raw[64];
   raw[0] = '\0';
-  parse_xff(raw, sizeof(raw));
+  char peer[64];
+  peer[0] = '\0';
+  get_client_key_from_socket(peer, sizeof(peer));
+  /* a client can spoof X-Forwarded-For, so only honor it when the socket
+     peer is a trusted local proxy */
+  if (rate_limit_ip_is_local(peer))
+    parse_xff(raw, sizeof(raw), g_trusted_proxy_hops);
   if (raw[0] == '\0')
-    get_client_key_from_socket(raw, sizeof(raw));
+    snprintf(raw, sizeof(raw), "%s", peer);
   if (raw[0] == '\0')
     snprintf(raw, sizeof(raw), "nun");
 
@@ -244,7 +255,15 @@ void rate_limit_get_client_key(char *client_key, size_t client_key_size) {
   hash_ip(raw, client_key, client_key_size);
 }
 
+#define RATE_LIMIT_MAX_ENTRIES 20000
+
+static int entry_count;
+static time_t last_prune;
+
 static void prune_stale_entries(time_t now) {
+  if (now == last_prune)
+    return;
+  last_prune = now;
   RateLimitEntry **cursor = &rate_limit_entries;
 
   while (*cursor) {
@@ -252,6 +271,7 @@ static void prune_stale_entries(time_t now) {
     if (now - entry->last_seen > 9999) {
       *cursor = entry->next;
       free(entry);
+      entry_count--;
       continue;
     }
     cursor = &entry->next;
@@ -280,6 +300,7 @@ static RateLimitEntry *create_entry(const char *client_key, const char *scope,
   entry->last_seen = now;
   entry->next = rate_limit_entries;
   rate_limit_entries = entry;
+  entry_count++;
   return entry;
 }
 
@@ -294,6 +315,12 @@ static RateLimitResult check_hashed(const char *scope,
 
   RateLimitEntry *entry = find_entry(hashed, scope);
   if (!entry) {
+    if (entry_count >= RATE_LIMIT_MAX_ENTRIES) {
+      result.limited = 1;
+      result.retry_after_seconds = config->interval_seconds;
+      pthread_mutex_unlock(&rate_limit_mutex);
+      return result;
+    }
     entry = create_entry(hashed, scope, now);
     if (!entry) {
       pthread_mutex_unlock(&rate_limit_mutex);

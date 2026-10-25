@@ -1,4 +1,5 @@
 #include "SettingsSave.h"
+#include "Prefs.h"
 #include <ctype.h>
 #include "../Scraping/Scraping.h"
 #include "../Utility/DomainPrefs.h"
@@ -6,9 +7,13 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define PREF_COOKIE_EXPIRES "Fri, 31 Dec 2038 23:59:59 GMT"
 
 int settings_save_handler(UrlParams *params) {
+  const char *fetch_site = beaker_get_header("Sec-Fetch-Site");
+  if (fetch_site && strcmp(fetch_site, "cross-site") == 0) {
+    send_redirect("/");
+    return 0;
+  }
   const char *locale = "";
   const char *default_engine = "all";
   int default_engine_present = 0;
@@ -92,7 +97,7 @@ int settings_save_handler(UrlParams *params) {
 
   if (dprefs_present)
     dprefs_save_editor_text(dprefs ? dprefs : "");
-  {
+  if (params) {
     int ulens_present = 0;
     const char *ulens = NULL;
     for (int i = 0; i < params->count; i++) {
@@ -111,8 +116,7 @@ int settings_save_handler(UrlParams *params) {
           clean[o++] = c;
       }
       clean[o] = '\0';
-      set_cookie("ulens", clean, "expires=Wed, 01 Jan 2031 00:00:00 GMT", "/",
-                 false, false);
+      set_cookie("ulens", clean, PREF_COOKIE_EXPIRES, "/", false, false);
     }
   }
 

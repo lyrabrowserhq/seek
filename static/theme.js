@@ -33,3 +33,29 @@ function toggleTheme() {
     const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
     setTheme(prefersDark ? 'dark' : 'light');
 })();
+
+/* delegated handlers so markup needs no inline event attributes */
+document.addEventListener('click', (e) => {
+    const toggle = e.target.closest('.theme-toggle-btn');
+    if (toggle) {
+        toggleTheme();
+        return;
+    }
+    const dismiss = e.target.closest('.degradation-dismiss');
+    if (dismiss && dismiss.parentElement) {
+        dismiss.parentElement.remove();
+    }
+});
+
+/* capture-phase image error fallback - replaces inline onerror */
+document.addEventListener('error', (e) => {
+    const img = e.target;
+    if (!(img instanceof HTMLImageElement)) return;
+    if (img.dataset.imgfbDone) return;
+    img.dataset.imgfbDone = '1';
+    if (img.hasAttribute('data-infobox-img')) {
+        if (img.parentNode) img.parentNode.classList.add('is-broken');
+        return;
+    }
+    img.src = '/static/icon-placeholder.svg';
+}, true);

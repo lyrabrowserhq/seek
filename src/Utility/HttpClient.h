@@ -25,6 +25,7 @@ void http_response_free(HttpResponse *resp);
 typedef struct {
   const char *url;
   const char *user_agent;
+  int no_follow;
   HttpResponse resp;
   CURL *handle;
 } HttpGetJob;

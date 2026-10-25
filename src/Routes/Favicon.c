@@ -1,7 +1,9 @@
 #include "Favicon.h"
 #include "../Cache/Cache.h"
+#include "../Limiter/RateLimit.h"
 #include "../Proxy/Proxy.h"
 #include "../Utility/HttpClient.h"
+#include "../Utility/NetGuard.h"
 #include <arpa/inet.h>
 #include <ctype.h>
 #include <curl/curl.h>
@@ -104,46 +106,25 @@ int favicon_parent_host(const char *host, char *out, size_t out_sz) {
 }
 
 static int extract_host(const char *url, char *host, size_t host_sz) {
-  const char *p = url;
-  if (!p)
-    return -1;
-  if (!strncasecmp(p, "http://", 7))
-    p += 7;
-  else if (!strncasecmp(p, "https://", 8))
-    p += 8;
-  else
-    return -1;
-  const char *at = strchr(p, '@');
-  if (at)
-    p = at + 1;
-  const char *end = p;
-  while (*end && *end != '/' && *end != '?' && *end != '#' && *end != ':')
-    end++;
-  size_t n = (size_t)(end - p);
-  if (n == 0 || n >= host_sz)
-    return -1;
-  memcpy(host, p, n);
-  host[n] = '\0';
-  return 0;
+  return netguard_url_host(url, host, host_sz);
 }
 
 static int host_blocked(const char *host) {
-  if (!host || !host[0])
-    return 1;
-  if (!strcasecmp(host, "localhost") || !strcmp(host, "127.0.0.1") ||
-      !strcmp(host, "::1"))
-    return 1;
-  struct in_addr v4;
-  if (inet_pton(AF_INET, host, &v4) == 1) {
-    unsigned char *b = (unsigned char *)&v4.s_addr;
-    if (b[0] == 10 || b[0] == 127)
-      return 1;
-    if (b[0] == 192 && b[1] == 168)
-      return 1;
-    if (b[0] == 172 && b[1] >= 16 && b[1] <= 31)
-      return 1;
+  return !netguard_host_is_public_literal_or_name(host);
+}
+
+/* strict bare hostname check for the host= query parameter: no port,
+   path, userinfo or other decoration - the value is interpolated into
+   https://%s/ URLs */
+static int host_param_valid(const char *host) {
+  if (!host || !host[0] || strlen(host) > 253)
+    return 0;
+  for (const char *p = host; *p; p++) {
+    unsigned char c = (unsigned char)*p;
+    if (!(isalnum(c) || c == '.' || c == '-'))
+      return 0;
   }
-  return 0;
+  return netguard_host_is_public_literal_or_name(host);
 }
 
 char *favicon_proxy_url_for_host(const char *host) {
@@ -267,6 +248,10 @@ static int write_file(const char *path, const char *data, size_t n) {
   return w == n ? 0 : -1;
 }
 
+static void fav_reset(void *arg) {
+  ((MemBuf *)arg)->size = 0;
+}
+
 static int fetch_url_limit(const char *url, MemBuf *buf, size_t cap, int allow_html) {
   CURL *curl = curl_easy_init();
   if (!curl)
@@ -278,22 +263,15 @@ static int fetch_url_limit(const char *url, MemBuf *buf, size_t cap, int allow_h
     curl_easy_cleanup(curl);
     return -1;
   }
-  curl_easy_setopt(curl, CURLOPT_URL, url);
   curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, fav_write);
   curl_easy_setopt(curl, CURLOPT_WRITEDATA, buf);
-  curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-  curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 3L);
   curl_easy_setopt(curl, CURLOPT_TIMEOUT, 1L);
   curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 1L);
   curl_easy_setopt(curl, CURLOPT_USERAGENT,
                    "Seek/1.0 (https://seek.lyrabrowser.com)");
   curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "");
-#if LIBCURL_VERSION_NUM >= 0x075500
-  curl_easy_setopt(curl, CURLOPT_PROTOCOLS_STR, "http,https");
-  curl_easy_setopt(curl, CURLOPT_REDIR_PROTOCOLS_STR, "http,https");
-#endif
   apply_proxy_settings(curl);
-  CURLcode res = curl_easy_perform(curl);
+  CURLcode res = netguard_perform(curl, url, 3, fav_reset, buf);
   long code = 0;
   curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &code);
   curl_easy_cleanup(curl);
@@ -595,6 +573,7 @@ void favicon_prime_pages(const char **page_urls, int n) {
   for (int i = 0; i < hn; i++) {
     jobs[i].url = urls[i];
     jobs[i].user_agent = SEEK_HTTP_UA;
+    jobs[i].no_follow = 1;
   }
   http_get_many(jobs, hn, 1);
   for (int i = 0; i < hn; i++) {
@@ -606,6 +585,18 @@ void favicon_prime_pages(const char **page_urls, int n) {
 }
 
 int favicon_handler(UrlParams *params) {
+  {
+    RateLimitConfig rl = {.max_requests = 400, .interval_seconds = 10};
+    RateLimitResult rlres = rate_limit_check("favicon", &rl);
+    if (rlres.limited) {
+      char retry[64];
+      snprintf(retry, sizeof(retry), "Retry-After: %d",
+               rlres.retry_after_seconds);
+      send_response_with_status("429 Too Many Requests", "<h1>429</h1>",
+                                retry);
+      return 0;
+    }
+  }
   const char *hash = NULL;
   const char *host_q = NULL;
   for (int i = 0; i < params->count; i++) {
@@ -617,7 +608,8 @@ int favicon_handler(UrlParams *params) {
 
   char computed[65];
   if ((!hash || strlen(hash) != 64) && host_q && host_q[0]) {
-    if (host_blocked(host_q) || favicon_host_hash(host_q, computed, sizeof(computed)) != 0) {
+    if (!host_param_valid(host_q) ||
+        favicon_host_hash(host_q, computed, sizeof(computed)) != 0) {
       serve_empty();
       return 0;
     }
@@ -667,7 +659,7 @@ int favicon_handler(UrlParams *params) {
   }
   free(map);
 
-  if (!host_q || host_blocked(host_q)) {
+  if (!host_q || !host_param_valid(host_q)) {
     serve_empty();
     return 0;
   }

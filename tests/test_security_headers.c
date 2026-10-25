@@ -74,6 +74,31 @@ static void test_snprint_html_ok(void) {
   TEST_ASSERT(strstr(out, body) != NULL);
 }
 
+static void test_custom_csp_variant(void) {
+  reset_state();
+  char buf[8192];
+  int n = beaker_format_security_headers_with_csp(
+      buf, sizeof(buf),
+      "default-src 'none'; style-src 'unsafe-inline'; sandbox");
+  TEST_ASSERT(n > 0);
+  TEST_ASSERT(strstr(buf, "sandbox") != NULL);
+  TEST_ASSERT(strstr(buf, "unsafe-inline'; sandbox") != NULL);
+  TEST_ASSERT(strstr(buf, "X-Content-Type-Options: nosniff") != NULL);
+  /* NULL falls back to the default policy */
+  n = beaker_format_security_headers_with_csp(buf, sizeof(buf), NULL);
+  TEST_ASSERT(n > 0);
+  TEST_ASSERT(strstr(buf, "default-src 'self'") != NULL);
+}
+
+static void test_default_csp_no_unsafe_inline_script(void) {
+  reset_state();
+  char buf[8192];
+  int n = beaker_format_security_headers(buf, sizeof(buf));
+  TEST_ASSERT(n > 0);
+  TEST_ASSERT(strstr(buf, "script-src 'self';") != NULL);
+  TEST_ASSERT(strstr(buf, "script-src 'self' 'unsafe-inline'") == NULL);
+}
+
 int main(void) {
   test_failures = 0;
   test_runs = 0;
@@ -83,5 +108,7 @@ int main(void) {
   test_buffer_too_small();
   test_snprint_empty_ok();
   test_snprint_html_ok();
+  test_custom_csp_variant();
+  test_default_csp_no_unsafe_inline_script();
   TEST_MAIN_RETURN();
 }

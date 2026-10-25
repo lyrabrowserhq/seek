@@ -3,6 +3,7 @@
 #include "../Scraping/Scraping.h"
 #include "../Utility/HttpClient.h"
 #include "../Utility/XmlHelper.h"
+#include "../Utility/HtmlEscape.h"
 #include <ctype.h>
 #include <curl/curl.h>
 #include "../Scraping/Hdoc.h"
@@ -55,24 +56,35 @@ static const char *strcasestr_impl(const char *haystack, const char *needle) {
 
 static char *build_html(const char *word, const char *pron, const char *pos,
                         const char *def, const char *ex) {
+  char ew[256], ep[256], eo[128], ed[1024], ee[1024];
+  if (word)
+    html_escape_text(word, ew, sizeof(ew));
+  if (pron)
+    html_escape_text(pron, ep, sizeof(ep));
+  if (pos)
+    html_escape_text(pos, eo, sizeof(eo));
+  if (def)
+    html_escape_text(def, ed, sizeof(ed));
+  if (ex)
+    html_escape_text(ex, ee, sizeof(ee));
   char html[4096];
   int n = snprintf(html, sizeof(html),
                    "<div class=\"widget widget-dictionary\">");
   if (word)
     n += snprintf(html + n, sizeof(html) - n,
-                  "<div class=\"widget-dictionary-word\">%s</div>", word);
+                  "<div class=\"widget-dictionary-word\">%s</div>", ew);
   if (pron)
     n += snprintf(html + n, sizeof(html) - n,
-                  "<div class=\"widget-dictionary-pron\">/%s/</div>", pron);
+                  "<div class=\"widget-dictionary-pron\">/%s/</div>", ep);
   if (pos)
     n += snprintf(html + n, sizeof(html) - n,
-                  "<div class=\"widget-dictionary-pos\">%s</div>", pos);
+                  "<div class=\"widget-dictionary-pos\">%s</div>", eo);
   if (def)
     n += snprintf(html + n, sizeof(html) - n,
-                  "<div class=\"widget-dictionary-def\">%s</div>", def);
+                  "<div class=\"widget-dictionary-def\">%s</div>", ed);
   if (ex)
     n += snprintf(html + n, sizeof(html) - n,
-                  "<div class=\"widget-dictionary-ex\">\"%s\"</div>", ex);
+                  "<div class=\"widget-dictionary-ex\">\"%s\"</div>", ee);
   snprintf(html + n, sizeof(html) - n, "</div>");
   return strdup(html);
 }

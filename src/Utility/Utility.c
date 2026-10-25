@@ -239,3 +239,30 @@ void snippet_strip_feed_meta(char *s) {
     n--;
   }
 }
+
+int url_is_web(const char *url) {
+  if (!url)
+    return 0;
+  size_t n = strlen(url);
+  if (n == 0 || n >= 2048)
+    return 0;
+  const char *p = url;
+  if (strncasecmp(p, "http://", 7) == 0)
+    p += 7;
+  else if (strncasecmp(p, "https://", 8) == 0)
+    p += 8;
+  else
+    return 0;
+  const char *host_end = p;
+  while (*host_end && *host_end != '/' && *host_end != '?' && *host_end != '#')
+    host_end++;
+  if (host_end == p)
+    return 0;
+  for (const char *c = url; *c; c++) {
+    unsigned char ch = (unsigned char)*c;
+    if (ch < 0x20 || ch == 0x7f || ch == ' ' || ch == '\\' || ch == '"' ||
+        ch == '<' || ch == '>')
+      return 0;
+  }
+  return 1;
+}

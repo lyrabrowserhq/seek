@@ -177,8 +177,11 @@ $(BIN_DIR)/test_config: $(TEST_DIR)/test_config.c $(OBJ_DIR)/Config.o | $(BIN_DI
 $(BIN_DIR)/test_cache: $(TEST_DIR)/test_cache.c $(OBJ_DIR)/Cache/Cache.o | $(BIN_DIR)
 	$(CC) $(CFLAGS) -Itests $< $(OBJ_DIR)/Cache/Cache.o -o $@ $(LDFLAGS) $(TEST_CACHE_LINK)
 
-$(BIN_DIR)/test_ratelimit: $(TEST_DIR)/test_ratelimit.c $(OBJ_DIR)/Limiter/RateLimit.o $(BEAKER_LIB) | $(BIN_DIR)
-	$(CC) $(CFLAGS) -Itests -Ibeaker $< $(OBJ_DIR)/Limiter/RateLimit.o $(BEAKER_LIB) -o $@ $(LDFLAGS) -lpthread -lz -lcrypto
+$(BIN_DIR)/test_ratelimit: $(TEST_DIR)/test_ratelimit.c $(OBJ_DIR)/Limiter/RateLimit.o $(OBJ_DIR)/Config.o $(BEAKER_LIB) | $(BIN_DIR)
+	$(CC) $(CFLAGS) -Itests -Ibeaker $< $(OBJ_DIR)/Limiter/RateLimit.o $(OBJ_DIR)/Config.o $(BEAKER_LIB) -o $@ $(LDFLAGS) -lpthread -lz -lcrypto
+
+$(BIN_DIR)/test_netguard: $(TEST_DIR)/test_netguard.c $(OBJ_DIR)/Utility/NetGuard.o $(OBJ_DIR)/Proxy/Proxy.o | $(BIN_DIR)
+	$(CC) $(CFLAGS) -Itests $< $(OBJ_DIR)/Utility/NetGuard.o $(OBJ_DIR)/Proxy/Proxy.o -o $@ $(LDFLAGS) $(TEST_REST_LINK)
 
 $(BIN_DIR)/test_xmlhelper: $(TEST_DIR)/test_xmlhelper.c $(OBJ_DIR)/Utility/XmlHelper.o | $(BIN_DIR)
 	$(CC) $(CFLAGS) -Itests $< $(OBJ_DIR)/Utility/XmlHelper.o -o $@ $(LDFLAGS) $(TEST_XML_LINK)
@@ -226,9 +229,11 @@ $(BIN_DIR)/test_today: $(TEST_DIR)/test_today.c $(OBJ_DIR)/Infobox/Today.o \
 		$(BEAKER_LIB) -o $@ $(LDFLAGS) $(TEST_REST_LINK) -lz
 
 $(BIN_DIR)/test_favicon: $(TEST_DIR)/test_favicon.c $(OBJ_DIR)/Routes/Favicon.o \
+	$(OBJ_DIR)/Utility/NetGuard.o $(OBJ_DIR)/Limiter/RateLimit.o \
 	$(TEST_OBJ_HTTP) $(BEAKER_LIB) | $(BIN_DIR)
-	$(CC) $(CFLAGS) -Itests $< $(OBJ_DIR)/Routes/Favicon.o $(TEST_OBJ_HTTP) \
-		$(BEAKER_LIB) -o $@ $(LDFLAGS) $(TEST_REST_LINK) -lz
+	$(CC) $(CFLAGS) -Itests $< $(OBJ_DIR)/Routes/Favicon.o \
+		$(OBJ_DIR)/Utility/NetGuard.o $(OBJ_DIR)/Limiter/RateLimit.o \
+		$(TEST_OBJ_HTTP) $(BEAKER_LIB) -o $@ $(LDFLAGS) $(TEST_REST_LINK) -lz
 
 $(BIN_DIR)/smoke_http: $(TEST_DIR)/smoke_http.c $(TEST_OBJ_HTTP) | $(BIN_DIR)
 	$(CC) $(CFLAGS) -Itests $< $(TEST_OBJ_HTTP) -o $@ $(LDFLAGS) $(TEST_REST_LINK)
@@ -249,7 +254,7 @@ test-rest: $(BIN_DIR)/test_config $(BIN_DIR)/test_cache $(BIN_DIR)/test_xmlhelpe
 	$(BIN_DIR)/test_httpclient $(BIN_DIR)/test_proxy $(BIN_DIR)/test_ratelimit \
 	$(BIN_DIR)/test_rank $(BIN_DIR)/test_json_engines $(BIN_DIR)/test_engine_registry \
 	$(BIN_DIR)/test_html_parsers \
-	$(BIN_DIR)/test_today $(BIN_DIR)/test_favicon $(BIN_DIR)/smoke_http
+	$(BIN_DIR)/test_today $(BIN_DIR)/test_favicon $(BIN_DIR)/test_netguard $(BIN_DIR)/smoke_http
 	./$(BIN_DIR)/test_config
 	./$(BIN_DIR)/test_cache
 	./$(BIN_DIR)/test_xmlhelper
@@ -262,6 +267,7 @@ test-rest: $(BIN_DIR)/test_config $(BIN_DIR)/test_cache $(BIN_DIR)/test_xmlhelpe
 	./$(BIN_DIR)/test_html_parsers
 	./$(BIN_DIR)/test_today
 	./$(BIN_DIR)/test_favicon
+	./$(BIN_DIR)/test_netguard
 	./$(BIN_DIR)/smoke_http
 
 test-app: $(BIN_DIR)/test_bangs $(BIN_DIR)/test_display $(BIN_DIR)/test_security_headers

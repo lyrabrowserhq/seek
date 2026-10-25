@@ -253,19 +253,34 @@ int images_handler(UrlParams *params) {
       return -1;
     }
 
+    int w = 0;
     for (int i = 0; i < result_count; i++) {
-      image_matrix[i] = malloc(sizeof(char *) * IMAGE_RESULT_FIELDS);
-      image_matrix[i][0] = strdup(results[i].thumbnail_url);
-      image_matrix[i][1] = strdup(results[i].title);
-      image_matrix[i][2] = strdup(results[i].page_url);
+      int thumb_ok = results[i].thumbnail_url &&
+                     (results[i].thumbnail_url[0] == '/' ||
+                      url_is_web(results[i].thumbnail_url));
+      int page_ok = results[i].page_url &&
+                    (strcmp(results[i].page_url, "#") == 0 ||
+                     url_is_web(results[i].page_url));
+      int full_ok = results[i].full_url &&
+                    (strcmp(results[i].full_url, "#") == 0 ||
+                     url_is_web(results[i].full_url));
+      if (!thumb_ok || !page_ok || !full_ok)
+        continue;
+      image_matrix[w] = malloc(sizeof(char *) * IMAGE_RESULT_FIELDS);
+      image_matrix[w][0] = strdup(results[i].thumbnail_url);
+      image_matrix[w][1] = strdup(results[i].title);
+      image_matrix[w][2] = strdup(results[i].page_url);
       char *full_wrapped = proxy_wrap_image_url(results[i].full_url);
-      image_matrix[i][3] =
+      image_matrix[w][3] =
           full_wrapped ? full_wrapped : strdup(results[i].full_url);
-      inner_counts[i] = IMAGE_RESULT_FIELDS;
+      inner_counts[w] = IMAGE_RESULT_FIELDS;
+      w++;
     }
 
-    context_set_array_of_arrays(&ctx, "images", image_matrix, result_count,
-                                inner_counts);
+    if (w > 0)
+      context_set_array_of_arrays(&ctx, "images", image_matrix, w,
+                                  inner_counts);
+    result_count = w;
   }
 
   char *rendered = render_template("images.html", &ctx);

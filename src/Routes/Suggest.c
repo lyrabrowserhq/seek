@@ -1,4 +1,6 @@
 #include "Suggest.h"
+#include "../Limiter/RateLimit.h"
+#include "../Utility/JsonHelper.h"
 #include "../Utility/HttpClient.h"
 #include <ctype.h>
 #include <stdio.h>
@@ -26,6 +28,18 @@ static size_t url_encode_into(const char *in, char *out, size_t out_size) {
 }
 
 int suggest_handler(UrlParams *params) {
+  {
+    RateLimitConfig rl = {.max_requests = 60, .interval_seconds = 10};
+    RateLimitResult rlres = rate_limit_check("suggest", &rl);
+    if (rlres.limited) {
+      char retry[64];
+      snprintf(retry, sizeof(retry), "Retry-After: %d",
+               rlres.retry_after_seconds);
+      send_response_with_status("429 Too Many Requests", "<h1>429</h1>",
+                                retry);
+      return 0;
+    }
+  }
   const char *raw_query = "";
   if (params) {
     for (int i = 0; i < params->count; i++) {
@@ -39,6 +53,10 @@ int suggest_handler(UrlParams *params) {
     serve_data(empty, strlen(empty), "application/json; charset=UTF-8");
     return 0;
   }
+
+  char raw_buf[512];
+  snprintf(raw_buf, sizeof(raw_buf), "%s", raw_query);
+  raw_query = raw_buf;
 
   char encoded[1024];
   url_encode_into(raw_query, encoded, sizeof(encoded));
@@ -54,7 +72,9 @@ int suggest_handler(UrlParams *params) {
     size_t blen = 0;
     FILE *fp = open_memstream(&buf, &blen);
     if (fp) {
-      fprintf(fp, "[\"%s\",[]]", raw_query);
+      char *q = json_string_value(raw_query);
+      fprintf(fp, "[%s,[]]", q ? q : "\"\"");
+      free(q);
       fclose(fp);
       if (buf && blen > 0)
         serve_data(buf, blen, "application/json; charset=UTF-8");

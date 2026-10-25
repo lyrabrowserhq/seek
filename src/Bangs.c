@@ -69,6 +69,25 @@ static void bang_defaults(void) {
   bang_add("news", "/news?q=%s");
 }
 
+/* a bang template is used as a printf format with one string argument, so
+   it must contain exactly one %s and no other conversion (%% is fine) */
+static int bang_template_valid(const char *tmpl) {
+  int subs = 0;
+  for (const char *p = tmpl; *p; p++) {
+    if (*p != '%')
+      continue;
+    p++;
+    if (*p == '%')
+      continue;
+    if (*p == 's') {
+      subs++;
+      continue;
+    }
+    return 0;
+  }
+  return subs == 1;
+}
+
 static int bang_override(const char *name, const char *tmpl) {
   for (int i = 0; i < bang_count; i++) {
     if (strcasecmp(bang_table[i].name, name) == 0) {
@@ -133,8 +152,10 @@ static void bang_load_file(const char *path) {
       val++;
     if (!key[0] || !val[0])
       continue;
-    if (!strstr(val, "%s")) {
-      fprintf(stderr, "[WARN] Bang %s must contain %%s; skipped\n", key);
+    if (!bang_template_valid(val)) {
+      fprintf(stderr,
+              "[WARN] Bang %s must contain exactly one %%s and no other "
+              "conversion; skipped\n", key);
       continue;
     }
     if (!bang_override(key, val))

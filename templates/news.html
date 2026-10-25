@@ -9,15 +9,17 @@
     <title>
         Seek News{{if query}} - {{query}}{{endif}}
     </title>
-    <link rel="stylesheet" href="/static/main.css?v=8">
+    <link rel="stylesheet" href="/static/main.css?v=9">
     <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
     <link rel="preload" href="static/fonts/geist-variable.woff2" as="font" type="font/woff2" crossorigin>
     <link rel="manifest" href="/manifest.json">
-    <script src="static/theme.js?v=2"></script>
+    <script src="static/theme.js?v=3"></script>
+    <script src="static/header.js?v=1" defer></script>
     <script src="static/shortcuts.js" defer></script>
     <script src="static/suggest.js" defer></script>
+    <script src="static/forms.js?v=1" defer></script>
         <script src="static/a11y.js" defer></script>
-    <script src="static/news.js?v=4" defer></script>
+    <script src="static/news.js?v=5" defer></script>
 </head>
 
 <body class="results-view">
@@ -60,29 +62,13 @@
                 <a href="/settings" class="settings-link" aria-label='{{l("settings_tab")}}' title='{{l("settings_tab")}}'>
                     <span class="ui-icon ui-icon-settings" aria-hidden="true"></span>
                 </a>
-                <button class="theme-toggle-btn" onclick="toggleTheme()" aria-label='{{l("toggle_theme")}}'>
+                <button class="theme-toggle-btn" aria-label='{{l("toggle_theme")}}'>
                     <span class="ui-icon ui-icon-sun sun-icon" aria-hidden="true"></span>
                     <span class="ui-icon ui-icon-moon moon-icon" aria-hidden="true"></span>
                 </button>
             </div>
         </div>
     </header>
-    <script>
-        document.addEventListener('DOMContentLoaded', () => {
-            const searchBox = document.getElementById('news-search');
-            const searchBtn = document.getElementById('news-search-btn');
-            const form = document.getElementById('news-search-form');
-            if (!searchBox || !searchBtn || !form) return;
-            const updateBtnState = () => {
-                const hasValue = searchBox.value.trim().length > 0;
-                searchBtn.disabled = !hasValue;
-                searchBtn.style.opacity = hasValue ? '1' : '0.4';
-                searchBtn.style.cursor = hasValue ? 'pointer' : 'default';
-            };
-            searchBox.addEventListener('input', updateBtnState);
-            updateBtnState();
-        });
-    </script>
     <div class="content-layout">
         <aside class="sidebar-spacer"></aside>
         <main class="results-container" id="main-content" role="main">
@@ -91,7 +77,7 @@
                 {{for filter in source_filters}}
                 <a href="{{filter[0]}}" class="{{filter[2]}}">
                     {{if filter[3] != ""}}
-                    <img src="{{filter[3]}}" alt="" width="16" height="16" decoding="async" class="site-icon" onerror="this.onerror=null;this.src='/static/icon-placeholder.svg'">
+                    <img src="{{filter[3]}}" alt="" width="16" height="16" decoding="async" class="site-icon" data-imgfb="1">
                     {{endif}}
                     {{filter[1]}}
                 </a>
@@ -103,7 +89,7 @@
                         {{for extra in source_overflow_items}}
                         <a href="{{extra[0]}}" class="{{extra[2]}}">
                             {{if extra[3] != ""}}
-                            <img src="{{extra[3]}}" alt="" width="16" height="16" loading="lazy" decoding="async" class="site-icon" onerror="this.onerror=null;this.src='/static/icon-placeholder.svg'">
+                            <img src="{{extra[3]}}" alt="" width="16" height="16" loading="lazy" decoding="async" class="site-icon" data-imgfb="1">
                             {{endif}}
                             {{extra[1]}}
                         </a>
@@ -127,7 +113,7 @@
                             <div class="result-header news-result-header">
                                 <span class="news-source">
                                     {{if article[7]}}
-                                    <img class="news-source-ico" src="{{article[7]}}" alt="" width="16" height="16" decoding="async" onerror="this.onerror=null;this.src='/static/icon-placeholder.svg'">
+                                    <img class="news-source-ico" src="{{article[7]}}" alt="" width="16" height="16" decoding="async" data-imgfb="1">
                                     {{endif}}
                                     {{article[5]}}
                                 </span>

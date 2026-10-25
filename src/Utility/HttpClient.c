@@ -188,8 +188,10 @@ void http_get_many(HttpGetJob *jobs, int n, long timeout_sec) {
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &jobs[i].resp);
     curl_easy_setopt(curl, CURLOPT_USERAGENT,
                      jobs[i].user_agent ? jobs[i].user_agent : "Seek/1.0");
-    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-    curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 4L);
+    if (!jobs[i].no_follow) {
+      curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+      curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 4L);
+    }
     curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "");
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, timeout);
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 2L);

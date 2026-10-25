@@ -47,6 +47,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  function safeUrl(u) {
+    if (typeof u !== 'string' || !u) return null;
+    if (/^https?:\/\//i.test(u)) return u;
+    if (/^\/(?!\/)/.test(u)) return u;
+    return null;
+  }
+
   function el(tag, className) {
     const n = document.createElement(tag);
     if (className)
@@ -103,9 +110,10 @@ document.addEventListener('DOMContentLoaded', () => {
       const art = el('article', 'result');
       const header = el('div', 'result-header news-result-header');
       const source = el('span', 'news-source');
-      if (item.icon) {
+      const iconSrc = safeUrl(item.icon);
+      if (iconSrc) {
         const img = el('img', 'news-source-ico');
-        img.src = item.icon;
+        img.src = iconSrc;
         img.alt = '';
         img.width = 16;
         img.height = 16;
@@ -130,7 +138,7 @@ document.addEventListener('DOMContentLoaded', () => {
         header.appendChild(time);
       }
       const title = el('a', 'result-title');
-      title.href = item.url || '#';
+      title.href = safeUrl(item.url) || '#';
       title.rel = 'noopener noreferrer';
       title.target = '_blank';
       title.textContent = item.title || '';

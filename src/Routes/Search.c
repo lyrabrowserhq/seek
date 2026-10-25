@@ -376,7 +376,8 @@ static int merge_rank_results(ScrapeJob *jobs, SearchResult **all_results,
           }
       }
       int drop = (filter_active && !site_filter_pass(&site_ops, rhost)) ||
-                 weight <= 0.0 || result_url_is_search_ui(r->url);
+                 weight <= 0.0 || result_url_is_search_ui(r->url) ||
+                 !url_is_web(r->url);
       if (drop) {
         free(rhost);
         free(r->url);
@@ -704,9 +705,14 @@ static void add_infobox_to_collection(InfoBox *infobox,
   if (thumb && thumb[0] &&
       (strncmp(thumb, "http://", 7) == 0 || strncmp(thumb, "https://", 8) == 0))
     proxied = proxy_wrap_image_url(thumb);
+  const char *info_url =
+      (infobox->url && (url_is_web(infobox->url) ||
+                        strcmp(infobox->url, "#") == 0))
+          ? infobox->url
+          : "#";
   const char *values[INFOBOX_FIELD_COUNT] = {
       infobox->title,        proxied ? proxied : "",
-      infobox->extract,      infobox->url,
+      infobox->extract,      info_url,
       read_more_label,       infobox_modifier_class(handler_idx),
   };
   string_matrix_append(collection, values, INFOBOX_FIELD_COUNT);
@@ -792,8 +798,7 @@ static char *engine_stack_html(const char *ids) {
     fprintf(fp,
             "<img src=\"%s\" alt=\"%s\" title=\"%s\" width=\"18\" height=\"18\" "
             "loading=\"lazy\" decoding=\"async\" class=\"engine-stack-ico\" "
-            "onerror=\"this.onerror=null;this.src='/static/"
-            "icon-placeholder.svg'\">",
+            "data-imgfb=\"1\">",
             src ? src : "/static/icon-placeholder.svg", alt, alt);
     free(src);
   }
@@ -979,7 +984,8 @@ static char *highlight_terms(const char *snippet, const char *query) {
       size_t tl = strlen(terms[i]);
       if (strncasecmp(p, terms[i], tl) == 0 &&
           (p == esc || !isalnum((unsigned char)p[-1])) &&
-          !isalnum((unsigned char)p[tl])) {
+          !isalnum((unsigned char)p[tl]) &&
+          !(p != esc && p[-1] == '&' && p[tl] == ';')) {
         if (o + tl + 8 < ocap) {
           memcpy(out + o, "<b>", 3);
           o += 3;
@@ -1370,14 +1376,22 @@ int results_handler(UrlParams *params) {
     char *lang = get_locale(NULL);
     char *eng_c = get_cookie("engines");
     char *dpref_c = get_cookie("dprefs");
+    char *forums_c = get_cookie("forums");
+    char *ulens_c = get_cookie("ulens");
+    char *defeng_c = get_cookie("default_engine");
     char scope[4096];
-    snprintf(scope, sizeof(scope), "pg|%s|%s|%s|%s|%s|%d",
+    snprintf(scope, sizeof(scope), "pg|%s|%s|%s|%s|%s|%d|%s|%s|%s|%s|%d",
              selected_engine_id, selected_lens, lang ? lang : "",
-             eng_c ? eng_c : "", dpref_c ? dpref_c : "", slop_cookie_mode());
+             eng_c ? eng_c : "", dpref_c ? dpref_c : "", slop_cookie_mode(),
+             forums_c ? forums_c : "", ulens_c ? ulens_c : "",
+             defeng_c ? defeng_c : "", time_filter, verbatim);
     page_key = cache_compute_key(raw_query, page, scope);
     free(lang);
     free(eng_c);
     free(dpref_c);
+    free(forums_c);
+    free(ulens_c);
+    free(defeng_c);
   }
   {
     char *cached_page = NULL;
@@ -2026,9 +2040,11 @@ int results_handler(UrlParams *params) {
         for (int i = 0; i < engine_idx; i++) {
           if (jobs[i].did_you_mean && *jobs[i].did_you_mean) {
             context_set(&ctx, "thin_suggestion", jobs[i].did_you_mean);
+            char *sug_enc = curl_easy_escape(NULL, jobs[i].did_you_mean, 0);
             char sug_href[512];
             snprintf(sug_href, sizeof(sug_href), "/search?q=%s",
-                     jobs[i].did_you_mean);
+                     sug_enc ? sug_enc : "");
+            curl_free(sug_enc);
             context_set(&ctx, "thin_suggestion_href", sug_href);
             break;
           }
@@ -2125,8 +2141,11 @@ int results_handler(UrlParams *params) {
       suggestion = fetch_did_you_mean(raw_query);
     if (suggestion) {
       context_set(&ctx, "suggestion", suggestion);
+      char *sug_enc = curl_easy_escape(NULL, suggestion, 0);
       char sug_href[512];
-      snprintf(sug_href, sizeof(sug_href), "/search?q=%s", suggestion);
+      snprintf(sug_href, sizeof(sug_href), "/search?q=%s",
+               sug_enc ? sug_enc : "");
+      curl_free(sug_enc);
       context_set(&ctx, "suggestion_href", sug_href);
       free(suggestion);
     }
@@ -2484,6 +2503,7 @@ int rss_handler(UrlParams *params) {
     channel_link[0] = '/';
     channel_link[1] = '\0';
   }
+  char *clink_esc = xml_escape_text(channel_link);
 
   fprintf(fp,
           "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
@@ -2491,7 +2511,7 @@ int rss_handler(UrlParams *params) {
           "<title>Seek: %s</title>\n"
           "<link>%s</link>\n"
           "<description>Metasearch snapshot for this query</description>\n",
-          q_esc ? q_esc : "", channel_link);
+          q_esc ? q_esc : "", clink_esc ? clink_esc : "");
 
   MergedResult *merged = NULL;
   int merged_count =
@@ -2517,6 +2537,7 @@ int rss_handler(UrlParams *params) {
   fprintf(fp, "</channel>\n</rss>\n");
   fclose(fp);
   free(q_esc);
+  free(clink_esc);
   free(search_href);
 
   if (buf && blen > 0)

@@ -20,6 +20,7 @@ int g_max_concurrent_fetches = DEFAULT_MAX_CONCURRENT_FETCHES;
 int g_cache_stampede_wait_ms = DEFAULT_CACHE_STAMPEDE_WAIT_MS;
 int g_cache_stampede_max_attempts = DEFAULT_CACHE_STAMPEDE_MAX_ATTEMPTS;
 int g_retry_backoff_ms = DEFAULT_RETRY_BACKOFF_MS;
+int g_trusted_proxy_hops = 1;
 
 void apply_runtime_config(const Config *cfg) {
   if (!cfg)
@@ -40,6 +41,8 @@ void apply_runtime_config(const Config *cfg) {
                                            : DEFAULT_CACHE_STAMPEDE_MAX_ATTEMPTS;
   g_retry_backoff_ms = cfg->retry_backoff_ms >= 0 ? cfg->retry_backoff_ms
                                                    : DEFAULT_RETRY_BACKOFF_MS;
+  g_trusted_proxy_hops =
+      cfg->trusted_proxy_hops > 0 ? cfg->trusted_proxy_hops : 1;
 }
 
 int load_config(const char *filename, Config *config) {
@@ -162,6 +165,8 @@ int load_config(const char *filename, Config *config) {
           config->rate_limit_news_requests = atoi(value);
         } else if (strcmp(key, "news_interval") == 0) {
           config->rate_limit_news_interval = atoi(value);
+        } else if (strcmp(key, "trusted_proxy_hops") == 0) {
+          config->trusted_proxy_hops = atoi(value);
         }
       }
     }

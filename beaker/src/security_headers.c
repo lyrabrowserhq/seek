@@ -9,8 +9,8 @@ static const char *g_permissions_policy_override;
 
 static const char default_csp[] =
     "default-src 'self'; "
-    "script-src 'self' 'unsafe-inline'; "
-    "style-src 'self' 'unsafe-inline'; "
+    "script-src 'self'; "
+    "style-src 'self'; "
     "img-src 'self' data: https:; "
     "font-src 'self'; "
     "connect-src 'self' https://api.frankfurter.app "
@@ -128,8 +128,10 @@ void beaker_set_hsts_include_subdomains(int include) {
   g_hsts_include_subdomains = include ? 1 : 0;
 }
 
-int beaker_format_security_headers(char *buf, size_t bufsize) {
-  const char *csp = g_csp_override ? g_csp_override : default_csp;
+int beaker_format_security_headers_with_csp(char *buf, size_t bufsize,
+                                            const char *csp) {
+  if (!csp)
+    csp = g_csp_override ? g_csp_override : default_csp;
   const char *pp = g_permissions_policy_override ? g_permissions_policy_override
                                                    : default_permissions_policy;
 
@@ -171,6 +173,10 @@ int beaker_format_security_headers(char *buf, size_t bufsize) {
   }
 
   return (int)off;
+}
+
+int beaker_format_security_headers(char *buf, size_t bufsize) {
+  return beaker_format_security_headers_with_csp(buf, bufsize, NULL);
 }
 
 int beaker_snprint_http_empty_response(char *buf, size_t bufsize,

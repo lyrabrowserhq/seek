@@ -7,13 +7,14 @@
     <meta name="theme-color" content="#ef4444">
     <meta name="mobile-web-app-capable" content="yes">
     <title>Seek - {{l("settings_title")}}</title>
-    <link rel="stylesheet" href="/static/main.css?v=8">
+    <link rel="stylesheet" href="/static/main.css?v=9">
     <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
     <link rel="preload" href="static/fonts/geist-variable.woff2" as="font" type="font/woff2" crossorigin>
     <link rel="manifest" href="/manifest.json">
-    <script src="static/theme.js?v=2"></script>
+    <script src="static/theme.js?v=3"></script>
+    <script src="static/header.js?v=1" defer></script>
     <script src="static/shortcuts.js" defer></script>
-    <script src="static/settings.js" defer></script>
+    <script src="static/settings.js?v=2" defer></script>
     <link rel="search" type="application/opensearchdescription+xml" title="Seek" href="/opensearch.xml">
 </head>
 
@@ -43,7 +44,7 @@
                 </div>
             </nav>
             <div class="theme-toggle-container">
-                <button class="theme-toggle-btn" onclick="toggleTheme()" aria-label='{{l("toggle_theme")}}'>
+                <button class="theme-toggle-btn" aria-label='{{l("toggle_theme")}}'>
                     <span class="ui-icon ui-icon-sun sun-icon" aria-hidden="true"></span>
                     <span class="ui-icon ui-icon-moon moon-icon" aria-hidden="true"></span>
                 </button>
@@ -73,23 +74,6 @@
                         <label class="settings-label" for="settings-theme">{{l("theme_label")}}</label>
                         <select id="settings-theme" class="settings-select"></select>
                     </div>
-                    <script>
-                        (function() {
-                            var sel = document.getElementById('settings-theme');
-                            var current = localStorage.getItem('theme') ||
-                                (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
-                            if (THEMES.indexOf(current) === -1)
-                                current = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-                            THEMES.forEach(function(t) {
-                                var opt = document.createElement('option');
-                                opt.value = t;
-                                opt.textContent = t.charAt(0).toUpperCase() + t.slice(1).replace(/-/g, ' ');
-                                if (t === current) opt.selected = true;
-                                sel.appendChild(opt);
-                            });
-                            sel.addEventListener('change', function() { setTheme(sel.value); });
-                        })();
-                    </script>
                 </section>
 
                 {{if has_enabled_engines}}
