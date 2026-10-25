@@ -879,7 +879,10 @@ static char *build_search_href(const char *query, const char *engine_id,
 static char *build_search_href_tv(const char *query, const char *engine_id,
                                   const char *lens, int page,
                                   const char *time_filter, int verbatim) {
-  const char *safe_query = query ? query : "";
+  char *enc_query = curl_easy_escape(NULL, query ? query : "", 0);
+  if (!enc_query)
+    return NULL;
+  const char *safe_query = enc_query;
   int use_engine = engine_id && engine_id[0] != '\0' &&
                    !engine_id_matches(engine_id, "all");
   size_t needed = strlen("/search?q=") + strlen(safe_query) + 1;
@@ -896,8 +899,10 @@ static char *build_search_href_tv(const char *query, const char *engine_id,
     needed += strlen("&v=1");
 
   char *href = (char *)malloc(needed);
-  if (!href)
+  if (!href) {
+    curl_free(enc_query);
     return NULL;
+  }
 
   snprintf(href, needed, "/search?q=%s", safe_query);
 
@@ -923,6 +928,7 @@ static char *build_search_href_tv(const char *query, const char *engine_id,
     strcat(href, page_buf);
   }
 
+  curl_free(enc_query);
   return href;
 }
 
@@ -1102,12 +1108,8 @@ static char *build_more_from_href(const char *host, const char *query,
   if (!q)
     return NULL;
   snprintf(q, qn, "site:%s %s", host, query ? query : "");
-  char *enc = curl_easy_escape(NULL, q, 0);
+  char *href = build_search_href(q, engine_id, lens, 1);
   free(q);
-  if (!enc)
-    return NULL;
-  char *href = build_search_href(enc, engine_id, lens, 1);
-  curl_free(enc);
   return href;
 }
 
@@ -1206,6 +1208,11 @@ int results_handler(UrlParams *params) {
   }
 
   context_set(&ctx, "query", raw_query);
+  {
+    char *q_enc = curl_easy_escape(NULL, raw_query, 0);
+    context_set(&ctx, "query_enc", q_enc ? q_enc : "");
+    curl_free(q_enc);
+  }
 
   /* lyra-only query decorations - other engines see the raw text */
   char *lyra_query = NULL;

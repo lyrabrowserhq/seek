@@ -33,15 +33,15 @@
             </a>
             <nav class="nav-tabs" aria-label='{{l("nav_search_type")}}'>
                 <div class="nav-tabs-track">
-                    <a href="/search?q={{query}}">
+                    <a href="/search?q={{query_enc}}">
                         <span class="ui-icon ui-icon-layout-grid" aria-hidden="true"></span>
                         {{l("all_tab")}}
                     </a>
-                    <a href="/images?q={{query}}">
+                    <a href="/images?q={{query_enc}}">
                         <span class="ui-icon ui-icon-image" aria-hidden="true"></span>
                         {{l("images_tab")}}
                     </a>
-                    <a href="/news?q={{query}}" class="active" aria-current="page">
+                    <a href="/news?q={{query_enc}}" class="active" aria-current="page">
                         <span class="ui-icon ui-icon-newspaper" aria-hidden="true"></span>
                         {{l("news_tab")}}
                     </a>
@@ -136,10 +136,10 @@
                         <p class="empty-state-copy">{{l("no_headlines_hint")}}</p>
                         <div class="empty-state-actions">
                             {{if selected_source}}
-                            <a class="empty-state-link" href="/news{{if query}}?q={{query}}{{endif}}">{{l("all_sources")}}</a>
+                            <a class="empty-state-link" href="/news{{if query}}?q={{query_enc}}{{endif}}">{{l("all_sources")}}</a>
                             {{endif}}
                             {{if query}}
-                            <a class="empty-state-link" href="/search?q={{query}}">{{l("search_web_instead")}}</a>
+                            <a class="empty-state-link" href="/search?q={{query_enc}}">{{l("search_web_instead")}}</a>
                             {{endif}}
                         </div>
                     </div>

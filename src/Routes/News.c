@@ -466,21 +466,26 @@ static char *news_source_icon(const char *source_id, const char *link) {
 }
 
 static char *build_news_href(const char *query, const char *source_id) {
-  char *href = malloc(BUFFER_SIZE_LARGE);
-  if (!href)
+  char *enc = (query && query[0]) ? curl_easy_escape(NULL, query, 0) : NULL;
+  size_t cap = strlen("/news?q=&source=") + (enc ? strlen(enc) : 0) +
+               (source_id ? strlen(source_id) : 0) + 1;
+  char *href = malloc(cap);
+  if (!href) {
+    curl_free(enc);
     return NULL;
-  href[0] = '\0';
-  strcat(href, "/news");
+  }
+  strcpy(href, "/news");
   int has_param = 0;
-  if (query && query[0]) {
+  if (enc) {
     strcat(href, "?q=");
-    strcat(href, query);
+    strcat(href, enc);
     has_param = 1;
   }
   if (source_id && source_id[0]) {
     strcat(href, has_param ? "&source=" : "?source=");
     strcat(href, source_id);
   }
+  curl_free(enc);
   return href;
 }
 
@@ -534,6 +539,11 @@ int news_handler(UrlParams *params) {
 
   char *display_query = url_decode_query(raw_query);
   context_set(&ctx, "query", display_query ? display_query : "");
+  {
+    char *q_enc = curl_easy_escape(NULL, display_query ? display_query : "", 0);
+    context_set(&ctx, "query_enc", q_enc ? q_enc : "");
+    curl_free(q_enc);
+  }
 
   const NewsSource *only_source = find_source(selected_source);
   context_set(&ctx, "selected_source", only_source ? only_source->id : "");

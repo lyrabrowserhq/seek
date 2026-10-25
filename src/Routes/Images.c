@@ -8,6 +8,7 @@
 #include "../Utility/Unescape.h"
 #include "../Utility/Utility.h"
 #include "Config.h"
+#include <curl/curl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -129,6 +130,11 @@ int images_handler(UrlParams *params) {
 
   char *display_query = url_decode_query(raw_query);
   context_set(&ctx, "query", display_query);
+  {
+    char *q_enc = curl_easy_escape(NULL, display_query ? display_query : "", 0);
+    context_set(&ctx, "query_enc", q_enc ? q_enc : "");
+    curl_free(q_enc);
+  }
 
   char client_key[BUFFER_SIZE_SMALL];
   rate_limit_get_client_key(client_key, sizeof(client_key));

@@ -41,19 +41,19 @@
                             <span class="ui-icon ui-icon-layout-grid" aria-hidden="true"></span>
                             {{l("all_tab")}}
                         </a>
-                        <a href="/images?q={{query}}">
+                        <a href="/images?q={{query_enc}}">
                             <span class="ui-icon ui-icon-image" aria-hidden="true"></span>
                             {{l("images_tab")}}
                         </a>
-                        <a href="/news?q={{query}}">
+                        <a href="/news?q={{query_enc}}">
                             <span class="ui-icon ui-icon-newspaper" aria-hidden="true"></span>
                             {{l("news_tab")}}
                         </a>
-                        <a href="/search?q={{query}}&amp;lens=videos">
+                        <a href="/search?q={{query_enc}}&amp;lens=videos">
                             <span class="ui-icon ui-icon-play" aria-hidden="true"></span>
                             Videos
                         </a>
-                        <a href="/search?q={{query}}&amp;lens=maps">
+                        <a href="/search?q={{query_enc}}&amp;lens=maps">
                             <span class="ui-icon ui-icon-map" aria-hidden="true"></span>
                             Maps
                         </a>
@@ -183,8 +183,8 @@
                     <p class="empty-state-copy">{{did_you_mean_msg}} <a class="error-suggest" href="{{suggestion_href}}">{{suggestion}}</a></p>
                     {{endif}}
                     <div class="empty-state-actions">
-                        <a class="empty-state-link" href="/images?q={{query}}">{{l("search_images_instead")}}</a>
-                        <a class="empty-state-link" href="/news?q={{query}}">{{l("search_news_instead")}}</a>
+                        <a class="empty-state-link" href="/images?q={{query_enc}}">{{l("search_images_instead")}}</a>
+                        <a class="empty-state-link" href="/news?q={{query_enc}}">{{l("search_news_instead")}}</a>
                     </div>
                 </div>
                 {{endif}}
