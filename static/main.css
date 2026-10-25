@@ -275,8 +275,8 @@ pre, code, kbd, samp {
 .search-box::-moz-selection,
 .images-search-input::selection,
 .images-search-input::-moz-selection {
-    background: transparent;
-    color: inherit;
+    background: var(--accent);
+    color: #fff;
 }
 
 /* Remove default search clear button */
